@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -24,15 +26,18 @@ type NodeConnectionInfo struct {
 
 type ConnManagerInterface interface {
 	GetConnection(nodeID string) (*NodeConnectionInfo, bool)
+	ConnectActiveNode(nodeID, addr string, port int, protocol string, cert *tls.Certificate, caCert *x509.Certificate) error
 }
 
 type NodeHandler struct {
-	DB      *gorm.DB
-	connMgr ConnManagerInterface
+	DB       *gorm.DB
+	connMgr  ConnManagerInterface
+	caCert   *tls.Certificate
+	caCertX509 *x509.Certificate
 }
 
-func NewNodeHandler(db *gorm.DB, connMgr ConnManagerInterface) *NodeHandler {
-	return &NodeHandler{DB: db, connMgr: connMgr}
+func NewNodeHandler(db *gorm.DB, connMgr ConnManagerInterface, caCert *tls.Certificate, caCertX509 *x509.Certificate) *NodeHandler {
+	return &NodeHandler{DB: db, connMgr: connMgr, caCert: caCert, caCertX509: caCertX509}
 }
 
 func (h *NodeHandler) getUserID(c *gin.Context) int64 {
@@ -132,7 +137,11 @@ func (h *NodeHandler) Create(c *gin.Context) {
 	}
 	connectMode := req.ConnectMode
 	if connectMode == "" {
-		connectMode = "passive"
+		connectMode = model.ConnectModePassiveTLS
+	}
+	if !model.ValidConnectMode(connectMode) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid connect_mode. Must be one of: active_tls, active_wss, passive_tls, passive_wss, auto"})
+		return
 	}
 
 	visibleToJSON, _ := json.Marshal(req.VisibleTo)
@@ -189,13 +198,16 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	}
 
 	var req struct {
-		Name       string   `json:"name"`
-		Host       string   `json:"host"`
-		Port       int      `json:"port"`
-		NodeGroup  string   `json:"node_group"`
-		IsPrivate  *bool    `json:"is_private"`
-		VisibleTo  []int64  `json:"visible_to"`
-		HiddenFrom []int64  `json:"hidden_from"`
+		Name        string   `json:"name"`
+		Host        string   `json:"host"`
+		Port        int      `json:"port"`
+		NodeGroup   string   `json:"node_group"`
+		IsPrivate   *bool    `json:"is_private"`
+		VisibleTo   []int64  `json:"visible_to"`
+		HiddenFrom  []int64  `json:"hidden_from"`
+		ConnectMode string   `json:"connect_mode"`
+		NodePort    int      `json:"node_port"`
+		NodeHost    string   `json:"node_host"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -225,6 +237,19 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		hiddenFromJSON, _ := json.Marshal(req.HiddenFrom)
 		updates["visible_to"] = string(visibleToJSON)
 		updates["hidden_from"] = string(hiddenFromJSON)
+	}
+	if req.ConnectMode != "" {
+		if !model.ValidConnectMode(req.ConnectMode) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid connect_mode"})
+			return
+		}
+		updates["connect_mode"] = req.ConnectMode
+	}
+	if req.NodePort != 0 {
+		updates["node_port"] = req.NodePort
+	}
+	if req.NodeHost != "" {
+		updates["node_host"] = req.NodeHost
 	}
 
 	updates["updated_at"] = time.Now()
@@ -284,14 +309,61 @@ func (h *NodeHandler) Connect(c *gin.Context) {
 	}
 
 	nodeIDStr := strconv.FormatInt(id, 10)
+
 	if h.connMgr != nil {
-		if _, ok := h.connMgr.GetConnection(nodeIDStr); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "offline",
-				"message": "Node is not connected. Please ensure the runtime is installed and running on the node.",
+		if existingConn, ok := h.connMgr.GetConnection(nodeIDStr); ok && existingConn != nil {
+			now := time.Now()
+			h.DB.Model(&n).Update("last_seen", now)
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "online",
+				"message": "Node is connected",
+				"node_id": id,
 			})
 			return
 		}
+
+		if n.ConnectMode == model.ConnectModeActiveTLS || n.ConnectMode == model.ConnectModeActiveWSS {
+			protocol := "tls"
+			if n.ConnectMode == model.ConnectModeActiveWSS {
+				protocol = "wss"
+			}
+			addr := n.Host
+			port := n.Port
+			if n.NodePort > 0 {
+				port = n.NodePort
+			}
+			if n.NodeHost != "" {
+				addr = n.NodeHost
+			}
+
+			err := h.connMgr.ConnectActiveNode(nodeIDStr, addr, port, protocol, nil, h.caCertX509)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"status":  "offline",
+					"message": "Failed to connect: " + err.Error(),
+				})
+				return
+			}
+
+			now := time.Now()
+			h.DB.Model(&n).Updates(map[string]interface{}{
+				"last_seen":      now,
+				"last_conn_mode": n.ConnectMode,
+				"updated_at":     now,
+			})
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "online",
+				"message": "Node connected successfully",
+				"node_id": id,
+			})
+			return
+		}
+
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "offline",
+			"message": "Node is not connected. Please ensure the runtime is installed and running on the node.",
+		})
+		return
 	}
 
 	now := time.Now()
@@ -301,6 +373,36 @@ func (h *NodeHandler) Connect(c *gin.Context) {
 		"status":  "online",
 		"message": "Node is connected",
 		"node_id": id,
+	})
+}
+
+func (h *NodeHandler) ResetToken(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	userID := h.getUserID(c)
+	userRole := h.getUserRole(c)
+
+	var n model.Node
+	err := h.DB.First(&n, id).Error
+	if err == gorm.ErrRecordNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !n.CanEdit(userID, userRole) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can reset token"})
+		return
+	}
+
+	newToken := uuid.New().String()
+	h.DB.Model(&n).Update("bootstrap_token", newToken)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "Token reset successfully",
+		"bootstrap_token": newToken,
 	})
 }
 

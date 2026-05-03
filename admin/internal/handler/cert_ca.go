@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -111,6 +112,17 @@ func (ca *CertCA) GetCACertTLS() *tls.Certificate {
 	return ca.caCert
 }
 
+func (ca *CertCA) GetCACertX509() *x509.Certificate {
+	if ca.caCert == nil || len(ca.caCert.Certificate) == 0 {
+		return nil
+	}
+	cert, err := x509.ParseCertificate(ca.caCert.Certificate[0])
+	if err != nil {
+		return nil
+	}
+	return cert
+}
+
 func (ca *CertCA) SignNodeCert(nodeID string, expires time.Time) (certPEM, keyPEM []byte, serial string, err error) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -170,4 +182,40 @@ func (ca *CertCA) SignNodeCert(nodeID string, expires time.Time) (certPEM, keyPE
 func (ca *CertCA) ValidateToken(token string) bool {
 	_, err := uuid.Parse(token)
 	return err == nil
+}
+
+func (ca *CertCA) RenewNodeCert(nodeID string, expires time.Time) (certPEM, keyPEM []byte, serial string, err error) {
+	return ca.SignNodeCert(nodeID, expires)
+}
+
+func (ca *CertCA) RevokeCert(serial string) error {
+	return nil
+}
+
+func (ca *CertCA) GenerateCRL() ([]byte, error) {
+	caCert, err := x509.ParseCertificate(ca.caCert.Certificate[0])
+	if err != nil {
+		return nil, err
+	}
+
+	signer, ok := ca.caCert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("CA private key does not implement crypto.Signer")
+	}
+
+	crlTemplate := &x509.RevocationList{
+		Number:     big.NewInt(1),
+		ThisUpdate: time.Now(),
+		NextUpdate: time.Now().Add(24 * time.Hour),
+	}
+
+	crlDER, err := x509.CreateRevocationList(rand.Reader, crlTemplate, caCert, signer)
+	if err != nil {
+		return nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "X509 CRL",
+		Bytes: crlDER,
+	}), nil
 }

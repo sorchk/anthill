@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type PluginMgr struct {
@@ -93,7 +94,7 @@ func (p *PluginMgr) Invoke(method string, args json.RawMessage) (json.RawMessage
 			return nil, err
 		}
 		msg, err := p.HandleInstall(&req)
-		return json.Marshal(map[string]string{"message": msg, "error": "", "success": err == nil})
+		return json.Marshal(map[string]string{"message": msg, "error": "", "success": strconv.FormatBool(err == nil)})
 
 	case "list":
 		plugins, err := p.HandleList()
@@ -108,7 +109,7 @@ func (p *PluginMgr) Invoke(method string, args json.RawMessage) (json.RawMessage
 			return nil, err
 		}
 		msg, err := p.HandleUninstall(req.Name)
-		return json.Marshal(map[string]string{"message": msg, "error": "", "success": err == nil})
+		return json.Marshal(map[string]string{"message": msg, "error": "", "success": strconv.FormatBool(err == nil)})
 
 	case "info":
 		var req struct{ Name string }

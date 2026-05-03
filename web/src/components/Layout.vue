@@ -55,7 +55,7 @@ import {
 import {
   ServerOutline, PersonCircleOutline, GridOutline,
   HardwareChipOutline, ExtensionPuzzleOutline, DocumentTextOutline, CloudUploadOutline,
-  PeopleOutline, TimeOutline, LanguageOutline, SettingsOutline
+  PeopleOutline, TimeOutline, LanguageOutline, SettingsOutline, GitNetworkOutline
 } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
 
@@ -73,6 +73,7 @@ const activeMenu = computed(() => {
     '/deployments': 'deployments',
     '/users': 'users',
     '/sessions': 'sessions',
+    '/tunnels': 'tunnels',
     '/settings': 'settings'
   }
   return map[route.path] || 'dashboard'
@@ -86,6 +87,7 @@ const routePath: Record<string, string> = {
   'deployments': '/deployments',
   'users': '/users',
   'sessions': '/sessions',
+  'tunnels': '/tunnels',
   'settings': '/settings'
 }
 
@@ -98,6 +100,7 @@ function makeMenuOptions(): MenuOption[] {
     { label: t('nav.deployments'), key: 'deployments', icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }) },
     { label: t('nav.users'), key: 'users', icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }) },
     { label: t('nav.sessions'), key: 'sessions', icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) },
+    { label: t('nav.tunnels'), key: 'tunnels', icon: () => h(NIcon, null, { default: () => h(GitNetworkOutline) }) },
     { label: t('nav.settings'), key: 'settings', icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }) }
   ]
 }

@@ -113,10 +113,17 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context) error {
 			return fmt.Errorf("failed to save certificate: %w", err)
 		}
 
-		if bootstrapResp.CACert != "" && b.certLoader.CACert == nil {
+		if bootstrapResp.CACert != "" {
 			caCertPath := b.certLoader.CertFile[:len(b.certLoader.CertFile)-4] + "ca.pem"
 			if err := os.WriteFile(caCertPath, []byte(bootstrapResp.CACert), 0600); err != nil {
 				return fmt.Errorf("failed to save CA certificate: %w", err)
+			}
+			if b.certLoader != nil {
+				caCert, err := cert.LoadFromFiles(b.certLoader.CertFile, b.certLoader.KeyFile, caCertPath)
+				if err != nil {
+					return fmt.Errorf("failed to reload certificate with CA: %w", err)
+				}
+				b.certLoader = caCert
 			}
 		}
 

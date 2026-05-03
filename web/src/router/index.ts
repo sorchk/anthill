@@ -27,6 +27,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'deployments', name: 'Deployments', component: () => import('@/views/Deployments.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
       { path: 'users', name: 'Users', component: () => import('@/views/Users.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
       { path: 'sessions', name: 'Sessions', component: () => import('@/views/Sessions.vue'), meta: { requiresAuth: true } },
+      { path: 'tunnels', name: 'Tunnels', component: () => import('@/views/Tunnels.vue'), meta: { requiresAuth: true } },
       { path: 'settings', name: 'Settings', component: () => import('@/views/Settings.vue'), meta: { requiresAuth: true } }
     ]
   }

@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -20,6 +22,7 @@ type Client struct {
 	cfg       *config.Config
 	logger    *zap.Logger
 	conn      *websocket.Conn
+	connTLS   *tls.Conn
 	reader    *protocol.MessageReader
 	writer    *protocol.MessageWriter
 	nodeID    string
@@ -45,21 +48,22 @@ func NewClient(cfg *config.Config, logger *zap.Logger) *Client {
 
 func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
+	var tlsConfig *tls.Config
 	if c.cfg.TLSCertFile != "" && c.cfg.TLSKeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(c.cfg.TLSCertFile, c.cfg.TLSKeyFile)
 		if err != nil {
-			c.mu.Unlock()
 			return fmt.Errorf("failed to load client cert: %w", err)
 		}
 
 		caPool, _ := c.cfg.LoadCACertPool()
 
-		tlsConfig := &tls.Config{
+		tlsConfig = &tls.Config{
 			Certificates:       []tls.Certificate{cert},
 			RootCAs:            caPool,
 			InsecureSkipVerify: c.cfg.InsecureMode,
@@ -68,23 +72,25 @@ func (c *Client) Connect(ctx context.Context) error {
 		dialer.TLSClientConfig = tlsConfig
 	}
 
-	c.mu.Unlock()
-
 	url := c.cfg.AdminURL
 	if url == "" {
-		url = "wss://localhost:8080/ws"
+		if c.cfg.ConnectionMode == config.ModePassiveTLS || c.cfg.ConnectionMode == config.ModeActiveTLS {
+			url = "tls://localhost:8080/runtime/conn"
+		} else {
+			url = "wss://localhost:8080/runtime/conn"
+		}
 	}
 
-	conn, _, err := dialer.DialContext(ctx, url, nil)
+	var err error
+	if c.cfg.ConnectionMode == config.ModePassiveTLS || c.cfg.ConnectionMode == config.ModeActiveTLS {
+		err = c.connectTLS(ctx, url, tlsConfig)
+	} else {
+		err = c.connectWSS(ctx, url, &dialer)
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin: %w", err)
+		return err
 	}
-
-	c.mu.Lock()
-	c.conn = conn
-	c.reader = protocol.NewMessageReader(conn)
-	c.writer = protocol.NewMessageWriter(conn)
-	c.mu.Unlock()
 
 	go c.readLoop()
 
@@ -93,9 +99,48 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	c.setStatus("connected")
-	c.logger.Info("Connected to admin", zap.String("url", url))
+	c.logger.Info("Connected to admin", zap.String("url", url), zap.String("mode", c.cfg.ConnectionMode.String()))
 
 	return nil
+}
+
+func (c *Client) connectWSS(ctx context.Context, url string, dialer *websocket.Dialer) error {
+	conn, _, err := dialer.DialContext(ctx, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to connect to admin (WSS): %w", err)
+	}
+
+	c.conn = conn
+	c.reader = protocol.NewMessageReader(conn)
+	c.writer = protocol.NewMessageWriter(conn)
+	return nil
+}
+
+func (c *Client) connectTLS(ctx context.Context, url string, tlsConfig *tls.Config) error {
+	host := extractHost(url)
+	if host == "" {
+		host = "localhost:8080"
+	}
+
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := tls.DialWithDialer(&dialer, "tcp", host, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to connect to admin (TLS): %w", err)
+	}
+
+	c.connTLS = conn
+	return nil
+}
+
+func extractHost(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+	if u.Host != "" {
+		return u.Host
+	}
+	return ""
 }
 
 func (c *Client) sendHandshake() error {
@@ -191,6 +236,9 @@ func (c *Client) Close() error {
 
 	if c.conn != nil {
 		return c.conn.Close()
+	}
+	if c.connTLS != nil {
+		return c.connTLS.Close()
 	}
 	return nil
 }

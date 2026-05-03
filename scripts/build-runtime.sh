@@ -28,12 +28,11 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o build/anthill-runtime-darwin-
 
 echo "Building CLI..."
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/anthill-cli-linux-amd64 ./cmd/cli
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o build/anthill-cli-linux-arm64 ./cmd/cli
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o build/anthill-cli-windows-amd64.exe ./cmd/cli
-GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o build/anthill-cli-darwin-amd64 ./cmd/cli
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o build/anthill-cli-darwin-arm64 ./cmd/cli
 
 cd build
-tar -czf anthill-runtime.tar.gz anthill-runtime-* anthill-cli-*
-rm -f anthill-runtime-linux-amd64 anthill-runtime-linux-arm64 anthill-runtime-darwin-amd64 anthill-runtime-darwin-arm64 anthill-runtime-windows-amd64.exe anthill-cli-linux-amd64 anthill-cli-windows-amd64.exe anthill-cli-darwin-amd64
 
 echo "Build complete: build/anthill-runtime.tar.gz"
 ls -lh .

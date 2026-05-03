@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -59,7 +60,10 @@ func (p *ShellPlugin) handleExec(args json.RawMessage) (json.RawMessage, error) 
 
 	start := time.Now()
 
-	cmd := exec.Command("sh", "-c", req.Command)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", req.Command)
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(start).Milliseconds()
 

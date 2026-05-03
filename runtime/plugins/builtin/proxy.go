@@ -150,7 +150,7 @@ func (p *ProxyPlugin) handleHTTPConn(conn net.Conn) {
 	defer conn.Close()
 
 	var buf [8192]byte
-	n, err := conn.Read(buf[:])
+	_, err := conn.Read(buf[:])
 	if err != nil {
 		return
 	}

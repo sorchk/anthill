@@ -10,12 +10,16 @@ import (
 )
 
 const (
-	MessageTypeHandshake    byte = 0x01
-	MessageTypeAuth         byte = 0x02
-	MessageTypeAuthResponse byte = 0x03
-	MessageTypeData         byte = 0x04
-	MessageTypeControl      byte = 0x05
-	MessageTypePluginInvoke byte = 0x10
+	MessageTypeHandshake     byte = 0x01
+	MessageTypeAuth          byte = 0x02
+	MessageTypeAuthResponse  byte = 0x03
+	MessageTypeData          byte = 0x04
+	MessageTypeControl       byte = 0x05
+	MessageTypeTunnelOpen    byte = 0x06
+	MessageTypeTunnelData    byte = 0x07
+	MessageTypeTunnelClose   byte = 0x08
+	MessageTypeTunnelKeyEx   byte = 0x09
+	MessageTypePluginInvoke  byte = 0x10
 	MessageTypePluginResult  byte = 0x11
 	MessageTypeHeartbeat     byte = 0xFE
 	MessageTypeClose        byte = 0xFF

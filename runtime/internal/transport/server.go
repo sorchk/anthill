@@ -31,6 +31,7 @@ type Session struct {
 	ID        string
 	NodeID    string
 	conn      *websocket.Conn
+	rawConn   net.Conn
 	reader    *protocol.MessageReader
 	writer    *protocol.MessageWriter
 	handler   MessageHandler
@@ -57,7 +58,7 @@ func NewServer(addr string, cert *tls.Certificate, logger *zap.Logger) *Server {
 
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/runtime/conn", s.handleWebSocket)
 
 	s.httpServ = &http.Server{
 		Addr:    s.addr,
@@ -68,7 +69,7 @@ func (s *Server) Start(ctx context.Context) error {
 	var err error
 
 	if s.tlsCert != nil {
-	 listener, err = tls.Listen("tcp", s.addr, &tls.Config{Certificates: []tls.Certificate{*s.tlsCert}})
+		listener, err = tls.Listen("tcp", s.addr, &tls.Config{Certificates: []tls.Certificate{*s.tlsCert}})
 	} else {
 		listener, err = net.Listen("tcp", s.addr)
 	}
@@ -79,10 +80,75 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.logger.Info("Server started", zap.String("addr", s.addr))
 
-	go s.httpServ.Serve(listener)
+	go s.acceptLoop(listener)
 
 	<-ctx.Done()
 	return s.httpServ.Close()
+}
+
+func (s *Server) acceptLoop(listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			s.logger.Error("Accept error", zap.Error(err))
+			return
+		}
+
+		go s.handleConn(conn)
+	}
+}
+
+func (s *Server) handleConn(conn net.Conn) {
+	defer conn.Close()
+
+	tlsConn, ok := conn.(*tls.Conn)
+	if ok {
+		if err := tlsConn.Handshake(); err != nil {
+			s.logger.Error("TLS handshake failed", zap.Error(err))
+			return
+		}
+		state := tlsConn.ConnectionState()
+		s.logger.Info("TLS connection accepted",
+			zap.Bool("mutual_tls", len(state.PeerCertificates) > 0),
+		)
+	}
+
+	session := &Session{
+		conn:      nil,
+		rawConn:   conn,
+		reader:    nil,
+		writer:    nil,
+		closeChan: make(chan struct{}),
+	}
+
+	s.mu.Lock()
+	s.sessions[session.ID] = session
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		delete(s.sessions, session.ID)
+		s.mu.Unlock()
+	}()
+
+	buf := make([]byte, 4096)
+	for {
+		select {
+		case <-session.closeChan:
+			return
+		default:
+		}
+
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		n, err := conn.Read(buf)
+		if err != nil {
+			return
+		}
+		if s.handler != nil && session.rawConn != nil {
+			msg := &protocol.Message{Type: protocol.MessageTypeData, Payload: buf[:n]}
+			s.handler.HandleMessage(session, msg)
+		}
+	}
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -171,5 +237,12 @@ func (s *Session) Close() error {
 }
 
 func (s *Session) Send(msg *protocol.Message) error {
-	return s.writer.WriteMessage(msg)
+	if s.writer != nil {
+		return s.writer.WriteMessage(msg)
+	}
+	if s.rawConn != nil {
+		_, err := s.rawConn.Write(msg.Payload)
+		return err
+	}
+	return fmt.Errorf("no connection available")
 }

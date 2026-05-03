@@ -103,6 +103,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.Session{},
 		&model.DeployTask{},
 		&model.NodePlugin{},
+		&model.Tunnel{},
 	)
 }
 

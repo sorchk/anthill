@@ -40,7 +40,7 @@ Quick Start:
 
 Runtime Node:
 1. Extract: tar -xzf anthill-runtime.tar.gz
-2. Run: ./anthill-runtime-linux-amd64 -admin wss://localhost:8080/ws
+2. Run: ./anthill-runtime-linux-amd64 -admin wss://localhost:8080/runtime/conn
 
 Default credentials: admin / admin123
 

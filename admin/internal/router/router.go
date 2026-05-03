@@ -1,6 +1,8 @@
 package router
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -30,7 +32,11 @@ func (a *connManagerAdapter) GetConnection(nodeID string) (*handler.NodeConnecti
 	}, true
 }
 
-func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHandler, connMgr *server.ConnManager) *gin.Engine {
+func (a *connManagerAdapter) ConnectActiveNode(nodeID, addr string, port int, protocol string, cert *tls.Certificate, caCert *x509.Certificate) error {
+	return a.cm.ConnectActiveNode(nodeID, addr, port, protocol, cert, caCert)
+}
+
+func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHandler, certHandler *handler.CertHandler, connMgr *server.ConnManager) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.Recovery())
@@ -45,7 +51,7 @@ func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapH
 	nodePluginHandler := handler.NewNodePluginHandler(db)
 	serviceHandler := handler.NewServicePluginHandler(db)
 
-	nodeHandler := handler.NewNodeHandler(db, &connManagerAdapter{cm: connMgr})
+	nodeHandler := handler.NewNodeHandler(db, &connManagerAdapter{cm: connMgr}, certHandler.GetCACert(), certHandler.GetCACertX509())
 	pluginDir := "./data/plugins"
 	pluginHandler := handler.NewPluginHandler(db, pluginDir)
 	auditHandler := handler.NewAuditLogHandler(db)
@@ -54,6 +60,7 @@ func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapH
 	nodeGroupHandler := handler.NewNodeGroupHandler(db)
 	deploymentHandler := handler.NewDeploymentHandler(db)
 	deployHandler := handler.NewDeployHandler(db)
+	tunnelHandler := handler.NewTunnelHandler(db)
 
 	api := r.Group("/api")
 	{
@@ -114,6 +121,9 @@ func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapH
 				nodes.DELETE("/:id", middleware.AdminOnly(), nodeHandler.Delete)
 				nodes.POST("/:id/connect", middleware.AdminOnly(), nodeHandler.Connect)
 				nodes.POST("/:id/bootstrap", bootstrapHandler.Bootstrap)
+				nodes.POST("/:id/cert/renew", middleware.AdminOnly(), certHandler.RenewCert)
+				nodes.POST("/:id/cert/revoke", middleware.AdminOnly(), certHandler.RevokeCert)
+				nodes.POST("/:id/reset-token", middleware.AdminOnly(), nodeHandler.ResetToken)
 
 				nodes.GET("/:id/plugins", nodePluginHandler.ListForNode)
 				nodes.POST("/:id/plugins/install", nodePluginHandler.Install)
@@ -127,6 +137,12 @@ func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapH
 				nodes.POST("/:id/services/:plugin/pause", serviceHandler.Pause)
 				nodes.GET("/:id/services/:plugin/status", serviceHandler.Status)
 				nodes.PUT("/:id/services/:plugin/config", serviceHandler.Config)
+			}
+
+			certs := protected.Group("/certs")
+			certs.Use(middleware.AdminOnly())
+			{
+				certs.GET("/crl", certHandler.GetCRL)
 			}
 
 			plugins := protected.Group("/plugins")
@@ -161,6 +177,17 @@ func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapH
 				deploy.GET("", deployHandler.ListTasks)
 				deploy.POST("", deployHandler.CreateTask)
 				deploy.GET("/:id", deployHandler.GetTask)
+			}
+
+			tunnels := protected.Group("/tunnels")
+			{
+				tunnels.GET("", tunnelHandler.List)
+				tunnels.GET("/:id", tunnelHandler.Get)
+				tunnels.POST("", middleware.AdminOnly(), tunnelHandler.Create)
+				tunnels.PUT("/:id", middleware.AdminOnly(), tunnelHandler.Update)
+				tunnels.DELETE("/:id", middleware.AdminOnly(), tunnelHandler.Delete)
+				tunnels.POST("/:id/toggle", middleware.AdminOnly(), tunnelHandler.Toggle)
+				tunnels.GET("/:id/stats", tunnelHandler.Stats)
 			}
 		}
 	}

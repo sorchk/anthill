@@ -1,12 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -48,7 +51,7 @@ func (s *PassiveServer) Start() error {
 	s.tlListener = tlsListener
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/runtime/conn", s.handleWebSocket)
 	mux.HandleFunc("/", s.handleTLS)
 
 	s.server = &http.Server{
@@ -62,6 +65,41 @@ func (s *PassiveServer) Start() error {
 	}()
 
 	fmt.Printf("PassiveServer started on port %d\n", s.port)
+	return nil
+}
+
+func (s *PassiveServer) StartWithGin(ginHandler http.Handler) error {
+	tlsConfig, err := s.createTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create TLS config: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/runtime/conn", s.handleWebSocket)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			s.handleTLS(w, r)
+		} else {
+			ginHandler.ServeHTTP(w, r)
+		}
+	})
+
+	reuseLn, err := NewReusePortListener(s.port, tlsConfig, mux)
+	if err != nil {
+		return fmt.Errorf("failed to create reuse port listener: %w", err)
+	}
+
+	s.server = &http.Server{
+		Handler: mux,
+	}
+
+	go func() {
+		if err := s.server.Serve(reuseLn); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("PassiveServer error: %v\n", err)
+		}
+	}()
+
+	fmt.Printf("PassiveServer started with reuse port on %d\n", s.port)
 	return nil
 }
 
@@ -271,4 +309,85 @@ func (w *WebSocketConn) RemoteAddr() net.Addr {
 
 func (w *WebSocketConn) SetDeadline(t time.Time) error {
 	return w.conn.UnderlyingConn().SetDeadline(t)
+}
+
+type ReusePortListener struct {
+	ln   net.Listener
+	tls  *tls.Config
+	http http.Handler
+}
+
+func NewReusePortListener(port int, tlsConfig *tls.Config, httpHandler http.Handler) (*ReusePortListener, error) {
+	lc := &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEPORT, 1)
+			})
+		},
+	}
+
+	ln, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on port %d: %w", port, err)
+	}
+
+	return &ReusePortListener{
+		ln:   ln,
+		tls:  tlsConfig,
+		http: httpHandler,
+	}, nil
+}
+
+func (r *ReusePortListener) Accept() (net.Conn, error) {
+	conn, err := r.ln.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	first := make([]byte, 1)
+	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	n, err := conn.Read(first)
+	conn.SetReadDeadline(time.Time{})
+
+	if err != nil && err != io.EOF {
+		if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+			conn.Close()
+			return nil, err
+		}
+	}
+
+	if n > 0 && first[0] == 0x16 {
+		tlsConn := tls.Server(conn, r.tls)
+		if err := tlsConn.Handshake(); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return tlsConn, nil
+	}
+
+	if n > 0 {
+		return &bufConn{Conn: conn, buf: bytes.NewBuffer(first[:n])}, nil
+	}
+
+	return conn, nil
+}
+
+func (r *ReusePortListener) Close() error {
+	return r.ln.Close()
+}
+
+func (r *ReusePortListener) Addr() net.Addr {
+	return r.ln.Addr()
+}
+
+type bufConn struct {
+	net.Conn
+	buf *bytes.Buffer
+}
+
+func (b *bufConn) Read(p []byte) (n int, err error) {
+	if b.buf.Len() > 0 {
+		return b.buf.Read(p)
+	}
+	return b.Conn.Read(p)
 }

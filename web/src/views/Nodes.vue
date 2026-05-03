@@ -29,7 +29,7 @@
       />
     </n-card>
 
-    <n-modal v-model:show="showAddModal" preset="card" :title="t('nodes.addNode')" style="width: 500px">
+    <n-modal v-model:show="showAddModal" preset="card" :title="t('nodes.addNode')" style="width: 600px">
       <n-form :model="formValue" :rules="rules" ref="formRef" label-placement="top">
         <n-form-item :label="t('nodes.name')" path="name">
           <n-input v-model:value="formValue.name" placeholder="My Node" />
@@ -40,11 +40,57 @@
         <n-form-item :label="t('nodes.port')" path="port">
           <n-input-number v-model:value="formValue.port" :min="1" :max="65535" style="width: 100%" />
         </n-form-item>
+        <n-form-item :label="t('nodes.connectMode')">
+          <n-select
+            v-model:value="formValue.connect_mode"
+            :options="connectModeOptions"
+            :placeholder="t('nodes.selectConnectMode')"
+          />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodeHost')">
+          <n-input v-model:value="formValue.node_host" :placeholder="t('nodes.nodeHostPlaceholder')" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodePort')">
+          <n-input-number v-model:value="formValue.node_port" :min="1" :max="65535" style="width: 100%" />
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
           <n-button @click="showAddModal = false">{{ t('nodes.cancel') }}</n-button>
           <n-button type="primary" @click="handleAdd" :loading="saving">{{ t('nodes.addNode') }}</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <n-modal v-model:show="showEditModal" preset="card" :title="t('nodes.edit')" style="width: 600px">
+      <n-form :model="editForm" label-placement="top">
+        <n-form-item :label="t('nodes.name')">
+          <n-input v-model:value="editForm.name" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.host')">
+          <n-input v-model:value="editForm.host" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.port')">
+          <n-input-number v-model:value="editForm.port" :min="1" :max="65535" style="width: 100%" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.connectMode')">
+          <n-select
+            v-model:value="editForm.connect_mode"
+            :options="connectModeOptions"
+            :placeholder="t('nodes.selectConnectMode')"
+          />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodeHost')">
+          <n-input v-model:value="editForm.node_host" :placeholder="t('nodes.nodeHostPlaceholder')" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodePort')">
+          <n-input-number v-model:value="editForm.node_port" :min="1" :max="65535" style="width: 100%" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showEditModal = false">{{ t('nodes.cancel') }}</n-button>
+          <n-button type="primary" @click="handleUpdate" :loading="saving">{{ t('nodes.save') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -56,7 +102,7 @@ import { ref, onMounted, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NDataTable, NCard, NButton, NSpace, NIcon, NModal, NForm,
-  NFormItem, NInput, NInputNumber, NTag, NPopconfirm, useMessage
+  NFormItem, NInput, NInputNumber, NTag, NPopconfirm, NSelect, useMessage
 } from 'naive-ui'
 import { AddOutline, RefreshOutline, TrashOutline, FlashOutline } from '@vicons/ionicons5'
 import api from '@/api'
@@ -67,9 +113,21 @@ const loading = ref(true)
 const saving = ref(false)
 const data = ref<any[]>([])
 const showAddModal = ref(false)
+const showEditModal = ref(false)
 const formRef = ref()
+const editingId = ref<number | null>(null)
 
-const formValue = ref({ name: '', host: '', port: 18888 })
+const formValue = ref({ name: '', host: '', port: 18888, connect_mode: 'passive_tls', node_host: '', node_port: 18888 })
+const editForm = ref({ name: '', host: '', port: 18888, connect_mode: 'passive_tls', node_host: '', node_port: 18888 })
+
+const connectModeOptions = [
+  { label: 'Active TLS (admin connects to node via TLS)', value: 'active_tls' },
+  { label: 'Active WSS (admin connects to node via WSS)', value: 'active_wss' },
+  { label: 'Passive TLS (node connects to admin via TLS)', value: 'passive_tls' },
+  { label: 'Passive WSS (node connects to admin via WSS)', value: 'passive_wss' },
+  { label: 'Auto (try active, fallback to passive)', value: 'auto' }
+]
+
 const rules = {
   name: { required: true, message: t('nodes.name') + ' is required' },
   host: { required: true, message: t('nodes.host') + ' is required' },
@@ -80,6 +138,13 @@ const columns = [
   { title: () => t('nodes.name'), key: 'name', width: 150 },
   { title: () => t('nodes.host'), key: 'host', width: 150 },
   { title: () => t('nodes.port'), key: 'port', width: 100 },
+  {
+    title: () => t('nodes.connectMode'),
+    key: 'connect_mode',
+    width: 130,
+    render: (row: any) => h(NTag, { type: row.connect_mode?.startsWith('active') ? 'info' : 'default', size: 'small' },
+      { default: () => row.connect_mode || 'passive_tls' })
+  },
   {
     title: () => t('nodes.status'),
     key: 'status',
@@ -98,9 +163,14 @@ const columns = [
   {
     title: () => t('nodes.actions'),
     key: 'actions',
-    width: 120,
+    width: 150,
     render: (row: any) => h(NSpace, { size: 'small' }, {
       default: () => [
+        h(NButton, {
+          size: 'small',
+          quaternary: true,
+          onClick: () => handleEdit(row)
+        }, { default: () => t('nodes.edit') }),
         h(NButton, {
           size: 'small',
           quaternary: true,
@@ -143,10 +213,40 @@ async function handleAdd() {
     await api.post('/nodes', formValue.value)
     message.success(t('nodes.nodeAdded'))
     showAddModal.value = false
-    formValue.value = { name: '', host: '', port: 18888 }
+    formValue.value = { name: '', host: '', port: 18888, connect_mode: 'passive_tls', node_host: '', node_port: 18888 }
     loadData()
   } catch (e: any) {
     message.error(e?.response?.data?.error || t('nodes.failedToAdd'))
+  } finally {
+    saving.value = false
+  }
+}
+
+function handleEdit(row: any) {
+  editingId.value = row.id
+  editForm.value = {
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    connect_mode: row.connect_mode || 'passive_tls',
+    node_host: row.node_host || '',
+    node_port: row.node_port || 18888
+  }
+  showEditModal.value = true
+}
+
+async function handleUpdate() {
+  if (!editingId.value) return
+
+  saving.value = true
+  try {
+    await api.put(`/nodes/${editingId.value}`, editForm.value)
+    message.success(t('nodes.nodeUpdated'))
+    showEditModal.value = false
+    editingId.value = null
+    loadData()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || t('nodes.failedToUpdate'))
   } finally {
     saving.value = false
   }

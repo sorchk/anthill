@@ -73,7 +73,7 @@ func printUsage() {
 }
 
 func doStatus(ctx context.Context) error {
-	url := fmt.Sprintf("ws://%s/ws", *addr)
+	url := fmt.Sprintf("ws://%s/runtime/conn", *addr)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {

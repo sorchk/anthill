@@ -82,6 +82,40 @@ func (c *ActiveClient) run() {
 	}
 }
 
+func (c *ActiveClient) TryConnect() error {
+	var conn net.Conn
+	var err error
+
+	if c.protocol == "tls" {
+		conn, err = c.dialTLS()
+	} else if c.protocol == "wss" {
+		conn, err = c.dialWSS()
+	} else {
+		return fmt.Errorf("unsupported protocol: %s", c.protocol)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to dial: %w", err)
+	}
+
+	if err := c.verifyNodeCert(conn); err != nil {
+		conn.Close()
+		return fmt.Errorf("certificate verification failed: %w", err)
+	}
+
+	c.conn = conn
+
+	if c.connMgr != nil {
+		if err := c.connMgr.AddConnection(c.nodeID, conn, c.protocol, c.mode); err != nil {
+			conn.Close()
+			return fmt.Errorf("failed to register connection: %w", err)
+		}
+	}
+
+	fmt.Printf("ActiveClient[%s] connected successfully\n", c.nodeID)
+	return nil
+}
+
 func (c *ActiveClient) connect() error {
 	var conn net.Conn
 	var err error
@@ -122,10 +156,12 @@ func (c *ActiveClient) connect() error {
 
 func (c *ActiveClient) dialTLS() (net.Conn, error) {
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{*c.cert},
 		RootCAs:            c.getCertPool(),
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
+	}
+	if c.cert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*c.cert}
 	}
 
 	addr := fmt.Sprintf("%s:%d", c.addr, c.port)
@@ -143,13 +179,15 @@ func (c *ActiveClient) dialTLS() (net.Conn, error) {
 }
 
 func (c *ActiveClient) dialWSS() (net.Conn, error) {
-	url := fmt.Sprintf("wss://%s:%d/ws", c.addr, c.port)
+	url := fmt.Sprintf("wss://%s:%d/runtime/conn", c.addr, c.port)
 
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{*c.cert},
 		RootCAs:            c.getCertPool(),
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
+	}
+	if c.cert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*c.cert}
 	}
 
 	dialer := websocket.Dialer{

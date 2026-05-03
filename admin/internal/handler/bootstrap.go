@@ -78,6 +78,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"cert":    string(certPEM),
 		"key":     string(keyPEM),
+		"ca_cert": string(h.ca.GetCACert()),
 		"expires": expires.Format(time.RFC3339),
 	})
 }

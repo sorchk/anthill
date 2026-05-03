@@ -30,13 +30,62 @@
             <n-descriptions-item :label="t('nodes.status')">
               <n-tag :type="statusType">{{ node.status }}</n-tag>
             </n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.connectMode')">
+              <n-tag :type="connectModeType">{{ node.connect_mode || 'passive_tls' }}</n-tag>
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.nodeHost')">{{ node.node_host || '-' }}</n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.nodePort')">{{ node.node_port || 18888 }}</n-descriptions-item>
             <n-descriptions-item :label="t('nodes.lastSeen')">
               {{ node.last_seen ? new Date(node.last_seen).toLocaleString() : '-' }}
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.lastConnMode')">{{ node.last_conn_mode || '-' }}</n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.certExpires')">
+              {{ node.cert_expires ? new Date(node.cert_expires).toLocaleString() : '-' }}
             </n-descriptions-item>
             <n-descriptions-item :label="t('nodes.created')">
               {{ node.created_at ? new Date(node.created_at).toLocaleString() : '-' }}
             </n-descriptions-item>
           </n-descriptions>
+        </n-card>
+      </n-tab-pane>
+
+      <n-tab-pane name="certificates" :tab="t('nodes.certificates')">
+        <n-card>
+          <template #header>
+            <n-space justify="space-between" align="center">
+              <span>{{ t('nodes.certificateManagement') }}</span>
+              <n-space>
+                <n-button size="small" @click="resetToken" type="warning" :loading="resettingToken">
+                  {{ t('nodes.resetToken') }}
+                </n-button>
+                <n-button size="small" @click="renewCert" type="info" :loading="renewing">
+                  {{ t('nodes.renewCert') }}
+                </n-button>
+                <n-button size="small" @click="revokeCert" type="error" :loading="revoking" v-if="node?.cert_serial">
+                  {{ t('nodes.revokeCert') }}
+                </n-button>
+              </n-space>
+            </n-space>
+          </template>
+          <n-descriptions :column="1" bordered size="small" v-if="node">
+            <n-descriptions-item :label="t('nodes.certSerial')">
+              {{ node.cert_serial || '-' }}
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.certExpires')">
+              {{ node.cert_expires ? new Date(node.cert_expires).toLocaleString() : '-' }}
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('nodes.bootstrapToken')">
+              <n-space>
+                <span>{{ node.bootstrap_token ? node.bootstrap_token.substring(0, 8) + '...' : '-' }}</span>
+                <n-button size="tiny" @click="copyToken" v-if="node?.bootstrap_token">
+                  {{ t('nodes.copy') }}
+                </n-button>
+              </n-space>
+            </n-descriptions-item>
+          </n-descriptions>
+          <n-alert v-if="!node?.cert_serial" type="warning">
+            {{ t('nodes.noCertificate') }}
+          </n-alert>
         </n-card>
       </n-tab-pane>
 
@@ -163,7 +212,7 @@
     </n-tabs>
 
     <!-- Edit Node Modal -->
-    <n-modal v-model:show="showEditModal" preset="card" :title="t('nodes.edit')" style="width: 500px">
+    <n-modal v-model:show="showEditModal" preset="card" :title="t('nodes.edit')" style="width: 600px">
       <n-form :model="editForm" label-placement="top">
         <n-form-item :label="t('nodes.name')">
           <n-input v-model:value="editForm.name" />
@@ -173,6 +222,19 @@
         </n-form-item>
         <n-form-item :label="t('nodes.port')">
           <n-input-number v-model:value="editForm.port" :min="1" :max="65535" style="width: 100%" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.connectMode')">
+          <n-select
+            v-model:value="editForm.connect_mode"
+            :options="connectModeOptions"
+            :placeholder="t('nodes.selectConnectMode')"
+          />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodeHost')">
+          <n-input v-model:value="editForm.node_host" :placeholder="t('nodes.nodeHostPlaceholder')" />
+        </n-form-item>
+        <n-form-item :label="t('nodes.nodePort')">
+          <n-input-number v-model:value="editForm.node_port" :min="1" :max="65535" style="width: 100%" />
         </n-form-item>
       </n-form>
       <template #footer>
@@ -269,12 +331,30 @@ const saving = ref(false)
 const installing = ref(false)
 const addingClient = ref(false)
 const executing = ref(false)
+const renewing = ref(false)
+const revoking = ref(false)
+const resettingToken = ref(false)
 
 const showEditModal = ref(false)
 const showInstallPluginModal = ref(false)
 const showAddClientModal = ref(false)
 
-const editForm = ref({ name: '', host: '', port: 18888 })
+const editForm = ref({
+  name: '',
+  host: '',
+  port: 18888,
+  connect_mode: 'passive_tls',
+  node_host: '',
+  node_port: 18888
+})
+
+const connectModeOptions = [
+  { label: 'Active TLS (admin connects to node via TLS)', value: 'active_tls' },
+  { label: 'Active WSS (admin connects to node via WSS)', value: 'active_wss' },
+  { label: 'Passive TLS (node connects to admin via TLS)', value: 'passive_tls' },
+  { label: 'Passive WSS (node connects to admin via WSS)', value: 'passive_wss' },
+  { label: 'Auto (try active, fallback to passive)', value: 'auto' }
+]
 const installForm = ref({ plugin_id: null })
 const clientForm = ref({ client_cn: '', role: 'viewer', allowed_plugins: [] as string[] })
 const clientFormRef = ref()
@@ -285,6 +365,13 @@ const executeResult = ref('')
 const statusType = computed(() => {
   if (node.value?.status === 'online') return 'success'
   if (node.value?.status === 'offline') return 'error'
+  return 'default'
+})
+
+const connectModeType = computed(() => {
+  const mode = node.value?.connect_mode || 'passive_tls'
+  if (mode.startsWith('active')) return 'info'
+  if (mode === 'auto') return 'warning'
   return 'default'
 })
 
@@ -377,7 +464,10 @@ async function loadNode() {
     editForm.value = {
       name: node.value.name,
       host: node.value.host,
-      port: node.value.port
+      port: node.value.port,
+      connect_mode: node.value.connect_mode || 'passive_tls',
+      node_host: node.value.node_host || '',
+      node_port: node.value.node_port || 18888
     }
   } catch {
     message.error(t('nodes.failedToLoad'))
@@ -550,6 +640,58 @@ async function executePlugin() {
     executeResult.value = JSON.stringify({ error: e?.response?.data?.error || 'Failed' }, null, 2)
   } finally {
     executing.value = false
+  }
+}
+
+async function renewCert() {
+  renewing.value = true
+  try {
+    await api.post(`/nodes/${nodeId.value}/cert/renew`, { days: 365 })
+    message.success(t('nodes.certRenewed'))
+    loadNode()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || t('nodes.failedToRenewCert'))
+  } finally {
+    renewing.value = false
+  }
+}
+
+async function revokeCert() {
+  if (!confirm(t('nodes.confirmRevokeCert'))) {
+    return
+  }
+  revoking.value = true
+  try {
+    await api.post(`/nodes/${nodeId.value}/cert/revoke`)
+    message.success(t('nodes.certRevoked'))
+    loadNode()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || t('nodes.failedToRevokeCert'))
+  } finally {
+    revoking.value = false
+  }
+}
+
+async function resetToken() {
+  if (!confirm(t('nodes.confirmResetToken'))) {
+    return
+  }
+  resettingToken.value = true
+  try {
+    await api.post(`/nodes/${nodeId.value}/reset-token`)
+    message.success(t('nodes.tokenReset'))
+    loadNode()
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || t('nodes.failedToResetToken'))
+  } finally {
+    resettingToken.value = false
+  }
+}
+
+function copyToken() {
+  if (node.value?.bootstrap_token) {
+    navigator.clipboard.writeText(node.value.bootstrap_token)
+    message.success(t('nodes.tokenCopied'))
   }
 }
 

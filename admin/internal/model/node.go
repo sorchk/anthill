@@ -7,6 +7,23 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	ConnectModeActiveTLS  = "active_tls"
+	ConnectModeActiveWSS  = "active_wss"
+	ConnectModePassiveTLS = "passive_tls"
+	ConnectModePassiveWSS = "passive_wss"
+	ConnectModeAuto       = "auto"
+)
+
+func ValidConnectMode(mode string) bool {
+	switch mode {
+	case ConnectModeActiveTLS, ConnectModeActiveWSS, ConnectModePassiveTLS, ConnectModePassiveWSS, ConnectModeAuto:
+		return true
+	default:
+		return false
+	}
+}
+
 type Node struct {
 	ID          int64          `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string         `gorm:"size:255;not null" json:"name"`

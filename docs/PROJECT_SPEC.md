@@ -1,18 +1,28 @@
 # Anthill Platform - 完整需求与开发规范
 
-**版本:** v2.1
-**日期:** 2026-05-02
+**版本:** v2.2
+**日期:** 2026-05-03
 **状态:** 已实现
 
 ---
 
 ## 变更日志
 
+### v2.2 (2026-05-03)
+- 新增：双向双协议连接支持（active_tls, active_wss, passive_tls, passive_wss, auto）
+- 新增：节点连接模式配置
+- 新增：Bootstrap Token 认证流程
+- 新增：自动模式重试策略（10次失败后切换被动模式）
+- 更新：PassiveServer 支持 TLS + WSS 双协议端口复用
+- 更新：Admin 服务端口规划（8080 被动，18888 主动）
+
 ### v2.1 (2026-05-02)
 - 新增：节点可见性权限功能（私有/公有节点）
 - 新增：节点所有者机制
 - 新增：可见用户列表和不可见用户列表
 - 删除：独立客户端程序（所有功能整合到 Admin Web）
+- 重构：包名从 anthill-admin/admin 改为 anthill/admin
+- 重构：包名从 anthill-runtime 改为 anthill-runtime
 
 ### v2.0 (2026-05-02)
 - 初始版本
@@ -131,7 +141,24 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
 
 ### 2.3 双向双协议连接
 
-**单端口双协议支持**：运行时节点和管理服务均在同一端口（默认 18888）同时支持 TLS 和 WSS 协议。
+**端口规划：**
+
+| 端口 | 协议 | 角色 | 说明 |
+|------|------|------|------|
+| 8080 | TLS + WSS | 被动 | 节点主动连接（mTLS 认证），主服务使用端口复用实现 |
+| 18888 | TLS+WSS | 主动 | 管理服务连接节点，节点提供监听端口，支持端口复用 |
+
+（端口可配置，支持 SO_REUSEPORT）
+
+**连接模式：**
+
+| 模式 | 值 | 说明 |
+|------|-----|------|
+| active_tls | 1 | 管理服务主动 TLS 连接节点 |
+| active_wss | 2 | 管理服务主动 WSS 连接节点 |
+| passive_tls | 3 | 节点主动 TLS 连接管理服务 |
+| passive_wss | 4 | 节点主动 WSS 连接管理服务 |
+| auto | 5 | 先尝试主动模式，失败后切换被动模式 |
 
 **连接模式矩阵：**
 
@@ -140,28 +167,36 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
           管理服务 | 节点
      ┌────────────┼──────────┐
 TLS  │   模式1    │  模式3   │
-协议 │ (M→N TLS)  │(N→M TLS) │
+     │ (active_   │ (passive)│
 ─────┼────────────┼──────────┤
 WSS  │   模式2    │  模式4   │
-     │ (M→N WSS)  │(N→M WSS) │
+     │ (active_   │ (passive)│
      └────────────┴──────────┘
 ```
 
 **模式说明：**
-- **模式1 (M→N TLS)**: 管理服务主动 TLS 连接节点（节点作 TLS Server）
-- **模式2 (M→N WSS)**: 管理服务主动 WSS 连接节点（节点作 WSS Server）
-- **模式3 (N→M TLS)**: 节点反向 TLS 连接管理服务（节点作 TLS Client）
-- **模式4 (N→M WSS)**: 节点反向 WSS 连接管理服务（节点作 WSS Client）
+- **模式1 (active_tls)**: 管理服务主动 TLS 连接节点（节点作 TLS Server）
+- **模式2 (active_wss)**: 管理服务主动 WSS 连接节点（节点作 WSS Server）
+- **模式3 (passive_tls)**: 节点主动 TLS 连接管理服务（节点作 TLS Client）
+- **模式4 (passive_wss)**: 节点主动 WSS 连接管理服务（节点作 WSS Client）
+
+**重试策略：**
+
+| 模式 | 重试策略 |
+|------|---------|
+| active_tls / active_wss | 失败后等待 10s、20s、40s...（指数退避，上限5分钟）|
+| passive_tls / passive_wss | 持续监听，等待节点连接 |
+| auto | 先 active（10次失败后切换 passive） |
 
 **适用场景：**
 
 | 网络环境 | 推荐模式 |
 |---------|---------|
-| 节点公网 IP，允许 TLS 入站 | 模式1 |
-| 节点公网 IP，仅 HTTP(S) 入站 | 模式2 |
-| 节点 NAT 后，可 TCP 出站 | 模式3 |
-| 节点 NAT 后，仅 HTTP(S) 出站 | 模式4 |
-| 复杂环境 | auto 模式 |
+| 节点公网 IP，允许 TLS 入站 | active_tls |
+| 节点公网 IP，仅 HTTP(S) 入站 | active_wss |
+| 节点 NAT 后，可 TCP 出站 | passive_tls |
+| 节点 NAT 后，仅 HTTP(S) 出站 | passive_wss |
+| 复杂环境 | auto |
 
 ---
 
@@ -483,6 +518,14 @@ CREATE TABLE nodes (
     owner_id INTEGER NOT NULL,
     visible_to_users TEXT DEFAULT '[]',
     hidden_from_users TEXT DEFAULT '[]',
+    connect_mode TEXT DEFAULT 'passive_tls',
+    node_port INTEGER DEFAULT 18888,
+    node_host TEXT,
+    bootstrap_token TEXT,
+    node_cert TEXT,
+    cert_serial TEXT,
+    cert_expires DATETIME,
+    last_conn_mode TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (owner_id) REFERENCES users(id)
@@ -1088,15 +1131,15 @@ services:
 **运行时节点：**
 ```bash
 # 下载
-wget https://releases.example.com/anthill-node-v2.0.0-linux-amd64.tar.gz
-tar -xzf anthill-node-v2.0.0-linux-amd64.tar.gz
+wget https://releases.example.com/anthill-runtime-v2.0.0-linux-amd64.tar.gz
+tar -xzf anthill-runtime-v2.0.0-linux-amd64.tar.gz
 
 # 配置
 cp configs/server.yml /etc/anthill/server.yml
 cp configs/certs/* /etc/anthill/certs/
 
 # 启动
-./anthill-node --config /etc/anthill/server.yml
+./anthill-runtime --config /etc/anthill/server.yml
 ```
 
 **系统服务：**
@@ -1107,7 +1150,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/anthill-node --config /etc/anthill/server.yml
+ExecStart=/usr/local/bin/anthill-runtime --config /etc/anthill/server.yml
 Restart=on-failure
 RestartSec=10s
 User=anthill

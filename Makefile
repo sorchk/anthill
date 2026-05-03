@@ -15,10 +15,13 @@ define REQUIRE_ENV
 endef
 all: build
 
+build-runtime: 
+	cd scripts && ls -la && ./build-runtime.sh
+
 build: 
-	cd script && build-backend.sh
-	cd script && build-frontend.sh
-	cd script && build-runtime.sh
+	cd scripts && ./build-backend.sh
+	cd scripts && ./build-frontend.sh
+	cd scripts && ./build-runtime.sh
 
 test:
 	./test-integration.sh
