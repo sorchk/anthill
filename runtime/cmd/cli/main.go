@@ -60,7 +60,7 @@ func printUsage() {
 	fmt.Println("TCP Runtime CLI")
 	fmt.Println("")
 	fmt.Println("Usage:")
-	fmt.Println("  tcp-cli [options] -action <action>")
+	fmt.Println("  anthill-cli [options] -action <action>")
 	fmt.Println("")
 	fmt.Println("Options:")
 	flag.PrintDefaults()

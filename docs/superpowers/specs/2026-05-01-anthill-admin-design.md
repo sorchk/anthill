@@ -479,7 +479,7 @@ clients:
 ## 9. 项目结构
 
 ```
-tcp-remote-admin/
+anthill-remote-admin/
 ├── cmd/
 │   └── server/
 │       └── main.go
@@ -2045,7 +2045,7 @@ func routeToPlugin(pluginName string, req *Request) Plugin {
 
 **数据库位置：**
 ```
-~/.tcp-admin/transfer.db
+~/.anthill-admin/transfer.db
 ```
 
 **Schema：**

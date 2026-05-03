@@ -13,12 +13,10 @@
 - 新增：节点所有者机制
 - 新增：可见用户列表和不可见用户列表
 - 删除：独立客户端程序（所有功能整合到 Admin Web）
-- 重构：包名从 tcp-admin/admin 改为 anthill/admin
-- 重构：包名从 tcp-runtime 改为 anthill-runtime
 
 ### v2.0 (2026-05-02)
 - 初始版本
-- 项目名称从 tcp-remote-admin 改为 Anthill
+- 项目名称从 anthill-remote-admin 改为 Anthill
 
 ---
 
@@ -46,12 +44,12 @@
 - 新增：节点所有者机制
 - 新增：可见用户列表和不可见用户列表
 - 删除：独立客户端程序（所有功能整合到 Admin Web）
-- 重构：包名从 tcp-admin/admin 改为 anthill/admin
-- 重构：包名从 tcp-runtime 改为 anthill-runtime
+- 重构：包名从 anthill-admin/admin 改为 anthill/admin
+- 重构：包名从 anthill-runtime 改为 anthill-runtime
 
 ### v2.0 (2026-05-02)
 - 初始版本
-- 项目名称从 tcp-remote-admin 改为 Anthill
+- 项目名称从 anthill-remote-admin 改为 Anthill
 
 ---
 
@@ -81,7 +79,7 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
 
 ### 1.4 项目名称变更
 
-- 旧名称：tcp-remote-admin
+- 旧名称：anthill-remote-admin
 - 新名称：Anthill
 
 ---
@@ -591,7 +589,7 @@ CREATE INDEX idx_tunnels_source ON tunnels(source_node_id);
 
 ### 5.2 Runtime Node 传输数据库 (SQLite)
 
-**位置：** `~/.tcp-admin/transfer.db`
+**位置：** `~/.anthill-admin/transfer.db`
 
 ```sql
 -- 传输会话表
@@ -1251,7 +1249,7 @@ config:
   resumable_transfer:
     enabled: true
     chunk_size: 1048576
-    db_path: ~/.tcp-admin/transfer.db
+    db_path: ~/.anthill-admin/transfer.db
 
   compression:
     enabled: true

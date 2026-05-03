@@ -1,5 +1,5 @@
 # Ignore build artifacts and dependencies
-/admin/tcp-admin
+/admin/anthill-admin
 /admin/build
 /admin/data
 /admin/tmp
@@ -13,8 +13,8 @@
 /runtime/build
 /runtime/dist
 /runtime/bin
-/runtime/tcp-cli
-/runtime/tcp-runtime
+/runtime/anthill-cli
+/runtime/anthill-runtime
 /runtime/tmp
 # Ignore logs and backups
 dist/

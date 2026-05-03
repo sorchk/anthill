@@ -53,8 +53,8 @@ docker compose up -d
 ### 手动安装
 ```bash
 # 从GitHub下载发布包
-tar -xzf tcp-admin-backend.tar.gz
-./tcp-admin-linux-amd64
+tar -xzf anthill-admin-backend.tar.gz
+./anthill-admin-linux-amd64
 ```
 
 ## 许可证
