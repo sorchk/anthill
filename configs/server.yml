@@ -1,0 +1,7 @@
+server:
+  host: "0.0.0.0"
+  port: 18888
+
+plugins:
+  dir: "./plugins/installed"
+  builtin_dir: "./plugins/builtin"

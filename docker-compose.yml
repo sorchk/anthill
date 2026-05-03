@@ -1,0 +1,46 @@
+services:
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: anthill-admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./admin/data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      - ADMIN_EMAIL=admin
+      - ADMIN_PASSWORD=admin123
+      - DB_PATH=/app/data/admin.db
+      - LISTEN_ADDR=:8080
+      - JWT_SECRET=your-secret-key-change-in-production
+    restart: unless-stopped
+    networks:
+      - anthill-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/stats/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: anthill-web
+    ports:
+      - "3008:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080/api
+    depends_on:
+      - admin
+    restart: unless-stopped
+    networks:
+      - anthill-net
+
+networks:
+  anthill-net:
+    driver: bridge

@@ -1,0 +1,10 @@
+clients:
+  - id: "admin001"
+    key: "admin_secret_key_12345"
+    role: "admin"
+    allowed_plugins: ["*"]
+
+  - id: "operator001"
+    key: "operator_secret_key_67890"
+    role: "operator"
+    allowed_plugins: ["file_transfer", "shell", "proxy"]

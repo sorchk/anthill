@@ -1,0 +1,7 @@
+*.sum
+*.md
+.git
+.gitignore
+test*
+*_test.go
+cmd/server/main.go

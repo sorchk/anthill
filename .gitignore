@@ -1,0 +1,30 @@
+# Ignore build artifacts and dependencies
+/admin/tcp-admin
+/admin/build
+/admin/data
+/admin/tmp
+# Ignore web build and dependencies
+/web/dist
+/web/node_modules
+# Ignore client build and dependencies
+/client/dist
+/client/node_modules
+# Ignore runtime build and dependencies
+/runtime/build
+/runtime/dist
+/runtime/bin
+/runtime/tcp-cli
+/runtime/tcp-runtime
+/runtime/tmp
+# Ignore logs and backups
+dist/
+bin/
+build/
+tmp/
+node_modules/
+*.log
+*.bak
+*.tar.gz
+*.zip
+/worktrees
+/.worktrees
