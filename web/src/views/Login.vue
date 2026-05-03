@@ -119,7 +119,7 @@ async function handleLogin() {
 
     router.push('/')
   } catch (error: any) {
-    message.error(error?.response?.data?.error || t('login.loginFailed'))
+    message.error(t('login.loginFailed'))
   } finally {
     loading.value = false
   }
