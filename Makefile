@@ -1,41 +1,34 @@
-.PHONY: all build up down logs ps test clean dev admin web
+.PHONY: all build test setup clean dev backend frontend runtime
 
 all: build
 
-build:
-	docker compose build
-
-up:
-	docker compose up -d
-
-down:
-	docker compose down
-
-logs:
-	docker compose logs -f
-
-logs-admin:
-	docker compose logs -f admin
-
-logs-web:
-	docker compose logs -f web
-
-ps:
-	docker compose ps
+build: 
+	@$(MAKE) setup
+	cd script && build-backend.sh
+	cd script && build-frontend.sh
+	cd script && build-runtime.sh
 
 test:
 	./test-integration.sh
 
-clean:
-	docker compose down -v --rmi local
-	rm -rf data/
-
+setup:
+	cd admin && go mod tidy
+	cd web && npm install
+	cd runtime && go mod tidy
 dev:
-	@$(MAKE) admin &
-	@$(MAKE) web
+	@$(MAKE) frontend &
+	@$(MAKE) backend 
 
-admin:
+backend:
 	cd admin && air
 
-web:
+frontend:
 	cd web && npm run dev
+
+runtime:
+	cd runtime && air
+
+clean:
+	cd web && npm run clean && rm -rf node_modules && rm -rf dist/
+	cd admin && go clean && rm -f dist/
+	cd runtime && go clean && rm -f dist/

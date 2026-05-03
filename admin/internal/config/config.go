@@ -6,6 +6,7 @@ import (
 
 type Config struct {
 	DBPath        string
+	DBURL         string
 	ListenAddr    string
 	PassiveAddr   string
 	CACertFile    string
@@ -16,8 +17,12 @@ type Config struct {
 }
 
 func Load() *Config {
+	dbURL := getEnv("DATABASE_URL", "")
+	if dbURL == "" {
+		dbURL = getEnv("DB_PATH", "./data/admin.db")
+	}
 	return &Config{
-		DBPath:        getEnv("DB_PATH", "./data/admin.db"),
+		DBPath:        dbURL,
 		ListenAddr:    getEnv("LISTEN_ADDR", ":8080"),
 		PassiveAddr:   getEnv("PASSIVE_ADDR", ":18888"),
 		CACertFile:    getEnv("CA_CERT_FILE", ""),

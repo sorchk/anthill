@@ -3,9 +3,8 @@ package database
 import (
 	"database/sql"
 	"os"
-	"path/filepath"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/lib/pq"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -24,26 +23,27 @@ func getDB() (*sql.DB, error) {
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {
-	dir := filepath.Dir(dbPath)
-	os.MkdirAll(dir, 0755)
-
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("postgres", dbPath)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := db.Ping(); err != nil {
 		return nil, err
 	}
 
 	schema := `
 	CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL DEFAULT 'viewer',
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS nodes (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL,
 		host TEXT NOT NULL,
 		port INTEGER DEFAULT 18888,
@@ -55,48 +55,48 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		tls_cert_path TEXT,
 		tls_cert_cn TEXT,
 		status TEXT DEFAULT 'unknown',
-		last_seen DATETIME,
+		last_seen TIMESTAMP,
 		node_group TEXT,
 		is_private INTEGER DEFAULT 0,
-		owner_id INTEGER NOT NULL,
+		owner_id BIGINT NOT NULL,
 		visible_to_users TEXT DEFAULT '[]',
 		hidden_from_users TEXT DEFAULT '[]',
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		connect_mode TEXT DEFAULT 'passive',
 		node_port INTEGER DEFAULT 18888,
 		node_host TEXT,
 		bootstrap_token TEXT,
 		node_cert TEXT,
 		cert_serial TEXT,
-		cert_expires DATETIME,
+		cert_expires TIMESTAMP,
 		last_conn_mode TEXT,
 		FOREIGN KEY (owner_id) REFERENCES users(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS node_groups (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		name TEXT UNIQUE NOT NULL,
 		description TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS plugins (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL,
 		version TEXT NOT NULL,
 		description TEXT,
 		file_path TEXT NOT NULL,
-		file_size INTEGER,
+		file_size BIGINT,
 		plugin_type TEXT NOT NULL,
 		checksum TEXT,
-		uploaded_by INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		uploaded_by BIGINT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS audit_logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
 		username TEXT NOT NULL,
 		action TEXT NOT NULL,
 		resource TEXT NOT NULL,
@@ -105,17 +105,17 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		ip TEXT,
 		status INTEGER,
 		details TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS deployments (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		node_id INTEGER NOT NULL,
-		plugin_id INTEGER NOT NULL,
+		id BIGSERIAL PRIMARY KEY,
+		node_id BIGINT NOT NULL,
+		plugin_id BIGINT NOT NULL,
 		version TEXT NOT NULL,
 		status TEXT DEFAULT 'pending',
 		result TEXT,
-		deployed_by INTEGER NOT NULL,
+		deployed_by BIGINT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (node_id) REFERENCES nodes(id),
@@ -123,8 +123,8 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	);
 
 	CREATE TABLE IF NOT EXISTS sessions (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL,
 		token TEXT NOT NULL UNIQUE,
 		ip TEXT,
 		user_agent TEXT,
@@ -134,29 +134,29 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	);
 
 	CREATE TABLE IF NOT EXISTS deploy_tasks (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		node_id INTEGER,
+		id BIGSERIAL PRIMARY KEY,
+		node_id BIGINT,
 		ssh_host TEXT NOT NULL,
 		ssh_port INTEGER DEFAULT 22,
 		ssh_user TEXT NOT NULL,
 		status TEXT DEFAULT 'pending',
 		log TEXT,
-		created_by INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		completed_at DATETIME,
+		created_by BIGINT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		completed_at TIMESTAMP,
 		FOREIGN KEY (node_id) REFERENCES nodes(id),
 		FOREIGN KEY (created_by) REFERENCES users(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS node_plugins (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		node_id INTEGER NOT NULL,
+		id BIGSERIAL PRIMARY KEY,
+		node_id BIGINT NOT NULL,
 		plugin_name TEXT NOT NULL,
 		version TEXT NOT NULL,
 		plugin_type TEXT NOT NULL,
 		status TEXT DEFAULT 'installing',
 		enabled BOOLEAN DEFAULT true,
-		installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(node_id, plugin_name),
 		FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 	);
@@ -178,7 +178,7 @@ func InitAdminUser(db *sql.DB, username, password string) error {
 
 	_, err = db.Exec(`
 		INSERT INTO users (username, password_hash, role)
-		VALUES (?, ?, 'admin')
+		VALUES ($1, $2, 'admin')
 		ON CONFLICT(username) DO NOTHING
 	`, username, string(hash))
 
@@ -192,6 +192,11 @@ func LogAudit(userID int64, username, action, path, method, ip string, status in
 	}
 	db.Exec(`
 		INSERT INTO audit_logs (user_id, username, action, resource, method, path, ip, status, details)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, userID, username, action, path, method, ip, status, details)
+}
+
+func directoryExists(dir string) bool {
+	info, err := os.Stat(dir)
+	return err == nil && info.IsDir()
 }

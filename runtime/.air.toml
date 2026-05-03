@@ -1,0 +1,14 @@
+[build]
+cmd = "go build -o tmp/main ./cmd/node/main"
+bin = "tmp/main"
+watch_dir = "."
+watch_ext = ".go"
+
+[build.main]
+  full_dir = "."
+  dir = "."
+  cmd = "go build -o tmp/main ./cmd/node/main"
+  args_binary = []
+
+[misc]
+  create_tmpl = false
