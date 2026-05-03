@@ -1,9 +1,21 @@
 .PHONY: all build test setup clean dev backend frontend runtime
 
+ENV_FILE := .env
+ifneq ($(wildcard $(ENV_FILE)),)
+include $(ENV_FILE)
+endif
+export
+
+define REQUIRE_ENV
+	@if [ ! -f "$(ENV_FILE)" ]; then \
+		echo "Missing env file: $(ENV_FILE)"; \
+		echo "Create .env from .env.example"; \
+		exit 1; \
+	fi
+endef
 all: build
 
 build: 
-	@$(MAKE) setup
 	cd script && build-backend.sh
 	cd script && build-frontend.sh
 	cd script && build-runtime.sh
@@ -16,8 +28,25 @@ setup:
 	cd web && npm install
 	cd runtime && go mod tidy
 dev:
-	@$(MAKE) frontend &
-	@$(MAKE) backend 
+	${REQUIRE_ENV}
+	@echo "Using env file: $(ENV_FILE)"
+	@$(MAKE) setup
+	@echo "Starting backend and frontend..."
+	@trap 'kill 0' EXIT; \
+		 (cd admin && air) & \
+		 (cd web && npm run dev) & \
+			wait
+stop: ## Stop backend and frontend processes for the current checkout
+	$(REQUIRE_ENV)
+	@echo "Stopping services..."
+	@-lsof -ti:$(PORT) | xargs kill -9 2>/dev/null
+	@-lsof -ti:$(FRONTEND_PORT) | xargs kill -9 2>/dev/null
+	@case "$(DATABASE_URL)" in \
+		""|*@localhost:*|*@localhost/*|*@127.0.0.1:*|*@127.0.0.1/*|*@\[::1\]:*|*@\[::1\]/*) \
+			echo "✓ App processes stopped. Shared PostgreSQL is still running on localhost:$(POSTGRES_PORT)." ;; \
+		*) \
+			echo "✓ App processes stopped. Remote PostgreSQL was not affected." ;; \
+	esac
 
 backend:
 	cd admin && air

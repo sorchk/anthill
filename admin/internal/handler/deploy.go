@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,16 +11,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/ssh"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/model"
 )
 
 type DeployHandler struct {
-	DB         *sql.DB
+	DB         *gorm.DB
 	binaryPath string
 }
 
-func NewDeployHandler(db *sql.DB) *DeployHandler {
+func NewDeployHandler(db *gorm.DB) *DeployHandler {
 	os.MkdirAll("./data/binaries", 0755)
 	return &DeployHandler{
 		DB:         db,
@@ -40,35 +40,33 @@ func (h *DeployHandler) CreateTask(c *gin.Context) {
 		req.SSHPort = 22
 	}
 
-	result, err := h.DB.Exec(`
-		INSERT INTO deploy_tasks (ssh_host, ssh_port, ssh_user, status, created_at)
-		VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-	`, req.SSHHost, req.SSHPort, req.SSHUser)
+	task := &model.DeployTask{
+		SSHHost: req.SSHHost,
+		SSHPort: req.SSHPort,
+		SSHUser: req.SSHUser,
+		Status:  "pending",
+	}
 
-	if err != nil {
+	if err := h.DB.Create(task).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	taskID, _ := result.LastInsertId()
+	go h.executeDeploy(task.ID, &req)
 
-	go h.executeDeploy(int64(taskID), &req)
-
-	c.JSON(http.StatusCreated, gin.H{"task_id": taskID})
+	c.JSON(http.StatusCreated, gin.H{"task_id": task.ID})
 }
 
 func (h *DeployHandler) GetTask(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-	var task model.DeployTask
-	err := h.DB.QueryRow(`
-		SELECT id, ssh_host, ssh_port, ssh_user, status, log, created_at, completed_at
-		FROM deploy_tasks WHERE id = ?
-	`, id).Scan(&task.ID, &task.SSHHost, &task.SSHPort, &task.SSHUser,
-		&task.Status, &task.Log, &task.CreatedAt, &task.CompletedAt)
-
-	if err == sql.ErrNoRows {
+	task, err := model.GetDeployTaskByID(h.DB, id)
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -76,21 +74,10 @@ func (h *DeployHandler) GetTask(c *gin.Context) {
 }
 
 func (h *DeployHandler) ListTasks(c *gin.Context) {
-	rows, err := h.DB.Query(`
-		SELECT id, ssh_host, ssh_port, ssh_user, status, created_at
-		FROM deploy_tasks ORDER BY created_at DESC LIMIT 50
-	`)
+	tasks, err := model.ListDeployTasks(h.DB, 50)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	defer rows.Close()
-
-	var tasks []model.DeployTask
-	for rows.Next() {
-		var t model.DeployTask
-		rows.Scan(&t.ID, &t.SSHHost, &t.SSHPort, &t.SSHUser, &t.Status, &t.CreatedAt)
-		tasks = append(tasks, t)
 	}
 
 	c.JSON(http.StatusOK, tasks)
@@ -100,9 +87,9 @@ func (h *DeployHandler) executeDeploy(taskID int64, req *model.DeployRequest) {
 	h.appendLog(taskID, "Starting deployment...")
 
 	config := &ssh.ClientConfig{
-		User: req.SSHUser,
+		User:            req.SSHUser,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout: 30 * time.Second,
+		Timeout:         30 * time.Second,
 	}
 
 	if req.SSHKey != "" {
@@ -200,8 +187,12 @@ func (h *DeployHandler) appendLog(taskID int64, msg string) {
 
 func (h *DeployHandler) updateStatus(taskID int64, status string) {
 	if status == "completed" || status == "failed" {
-		h.DB.Exec("UPDATE deploy_tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?", status, taskID)
+		now := time.Now()
+		h.DB.Model(&model.DeployTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":       status,
+			"completed_at": now,
+		})
 	} else {
-		h.DB.Exec("UPDATE deploy_tasks SET status = ? WHERE id = ?", status, taskID)
+		h.DB.Model(&model.DeployTask{}).Where("id = ?", taskID).Update("status", status)
 	}
 }

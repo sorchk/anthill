@@ -1,21 +1,23 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"anthill/admin/internal/model"
 )
 
 type BootstrapHandler struct {
-	DB *sql.DB
+	DB *gorm.DB
 	ca *CertCA
 }
 
-func NewBootstrapHandler(db *sql.DB, ca *CertCA) *BootstrapHandler {
+func NewBootstrapHandler(db *gorm.DB, ca *CertCA) *BootstrapHandler {
 	return &BootstrapHandler{DB: db, ca: ca}
 }
 
@@ -39,9 +41,9 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 
 	bootstrapToken := strings.TrimPrefix(authHeader, "Bearer ")
 
-	var storedToken string
-	err = h.DB.QueryRow("SELECT bootstrap_token FROM nodes WHERE id = ?", nodeID).Scan(&storedToken)
-	if err == sql.ErrNoRows {
+	var node model.Node
+	err = h.DB.Where("id = ?", nodeID).First(&node).Error
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
@@ -50,7 +52,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		return
 	}
 
-	if storedToken != bootstrapToken {
+	if node.BootstrapToken != bootstrapToken {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid bootstrap token"})
 		return
 	}
@@ -63,11 +65,11 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		return
 	}
 
-	_, err = h.DB.Exec(`
-		UPDATE nodes
-		SET cert_serial = ?, cert_expires = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, serial, expires, nodeID)
+	err = h.DB.Model(&model.Node{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
+		"cert_serial":  serial,
+		"cert_expires": expires,
+		"updated_at":   time.Now(),
+	}).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store certificate info"})
 		return

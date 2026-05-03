@@ -1,10 +1,13 @@
 package server
 
 import (
-	"database/sql"
 	"net"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
+
+	"anthill/admin/internal/model"
 )
 
 type NodeConnection struct {
@@ -26,10 +29,10 @@ type ConnManagerInterface interface {
 type ConnManager struct {
 	mu    sync.RWMutex
 	nodes map[string]*NodeConnection
-	db    *sql.DB
+	db    *gorm.DB
 }
 
-func NewConnManager(db *sql.DB) *ConnManager {
+func NewConnManager(db *gorm.DB) *ConnManager {
 	return &ConnManager{
 		nodes: make(map[string]*NodeConnection),
 		db:    db,
@@ -50,7 +53,7 @@ func (cm *ConnManager) AddConnection(nodeID string, conn net.Conn, protocol, mod
 	cm.nodes[nodeID] = nodeConn
 
 	if cm.db != nil {
-		cm.db.Exec(`UPDATE nodes SET last_seen = ? WHERE id = ?`, time.Now(), nodeID)
+		cm.db.Model(&model.Node{}).Where("id = ?", nodeID).Update("last_seen", time.Now())
 	}
 
 	return nil

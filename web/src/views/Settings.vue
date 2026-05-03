@@ -75,7 +75,7 @@
         <n-card :title="t('settings.systemInfo')">
           <n-descriptions :column="2" bordered size="small">
             <n-descriptions-item :label="t('settings.version')">v1.0.0</n-descriptions-item>
-            <n-descriptions-item :label="t('settings.database')">SQLite</n-descriptions-item>
+            <n-descriptions-item :label="t('settings.database')">Postgres</n-descriptions-item>
             <n-descriptions-item :label="t('settings.goVersion')">Go 1.21+</n-descriptions-item>
             <n-descriptions-item :label="t('settings.frameworks')">Gin + Vue3</n-descriptions-item>
           </n-descriptions>

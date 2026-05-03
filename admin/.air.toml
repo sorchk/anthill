@@ -1,9 +1,10 @@
 [build]
-cmd = "go build -o tmp/main ./cmd/server"
-bin = "tmp/main"
-watch_dir = "."
-watch_ext = ".go"
-
+  cmd = "go build -o tmp/main ./cmd/server"
+  bin = "tmp/main"
+  watch_dir = "."
+  watch_ext = ".go"
+[env]
+  DATABASE_URL = "postgresql://sorc:a8i3d2e9,.@192.168.1.56:5436/anthill"
 [build.main]
   full_dir = "."
   dir = "."

@@ -1,21 +1,21 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/model"
 )
 
 type UserHandler struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
-func NewUserHandler(db *sql.DB) *UserHandler {
+func NewUserHandler(db *gorm.DB) *UserHandler {
 	return &UserHandler{DB: db}
 }
 
@@ -32,7 +32,7 @@ func (h *UserHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
 	user, err := model.GetUserByID(h.DB, id)
-	if err == sql.ErrNoRows {
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -121,7 +121,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 	}
 
 	user, err := model.GetUserByID(h.DB, id)
-	if err == sql.ErrNoRows {
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -151,7 +151,7 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	}
 
 	if err := model.DeleteUser(h.DB, id); err != nil {
-		if err == sql.ErrNoRows {
+		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}

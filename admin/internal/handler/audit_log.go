@@ -1,19 +1,20 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"anthill/admin/internal/model"
 )
 
 type AuditLogHandler struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
-func NewAuditLogHandler(db *sql.DB) *AuditLogHandler {
+func NewAuditLogHandler(db *gorm.DB) *AuditLogHandler {
 	return &AuditLogHandler{DB: db}
 }
 
@@ -28,70 +29,26 @@ func (h *AuditLogHandler) List(c *gin.Context) {
 		pageSize = 50
 	}
 
-	offset := (page - 1) * pageSize
-
-	var total int
-	h.DB.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&total)
-
-	rows, err := h.DB.Query(`
-		SELECT id, user_id, username, action, resource, method, path, ip, status, details, created_at
-		FROM audit_logs
-		ORDER BY created_at DESC
-		LIMIT ? OFFSET ?
-	`, pageSize, offset)
-
+	result, err := model.ListAuditLogs(h.DB, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
 
-	var logs []model.AuditLog
-	for rows.Next() {
-		var log model.AuditLog
-		var details sql.NullString
-
-		err := rows.Scan(&log.ID, &log.UserID, &log.Username, &log.Action, &log.Resource,
-			&log.Method, &log.Path, &log.IP, &log.Status, &details, &log.CreatedAt)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if details.Valid {
-			log.Details = details.String
-		}
-
-		logs = append(logs, log)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data":      logs,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	})
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *AuditLogHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-	var log model.AuditLog
-	var details sql.NullString
-
-	err := h.DB.QueryRow(`
-		SELECT id, user_id, username, action, resource, method, path, ip, status, details, created_at
-		FROM audit_logs WHERE id = ?
-	`, id).Scan(&log.ID, &log.UserID, &log.Username, &log.Action, &log.Resource,
-		&log.Method, &log.Path, &log.IP, &log.Status, &details, &log.CreatedAt)
-
-	if err == sql.ErrNoRows {
+	log, err := model.GetAuditLogByID(h.DB, id)
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log not found"})
 		return
 	}
-
-	if details.Valid {
-		log.Details = details.String
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, log)

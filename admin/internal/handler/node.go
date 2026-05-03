@@ -1,24 +1,38 @@
 package handler
 
 import (
-	"database/sql"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/model"
 )
 
-type NodeHandler struct {
-	DB *sql.DB
+type NodeConnectionInfo struct {
+	NodeID        string
+	Conn          net.Conn
+	Protocol      string
+	LastHeartbeat time.Time
+	Mode          string
 }
 
-func NewNodeHandler(db *sql.DB) *NodeHandler {
-	return &NodeHandler{DB: db}
+type ConnManagerInterface interface {
+	GetConnection(nodeID string) (*NodeConnectionInfo, bool)
+}
+
+type NodeHandler struct {
+	DB      *gorm.DB
+	connMgr ConnManagerInterface
+}
+
+func NewNodeHandler(db *gorm.DB, connMgr ConnManagerInterface) *NodeHandler {
+	return &NodeHandler{DB: db, connMgr: connMgr}
 }
 
 func (h *NodeHandler) getUserID(c *gin.Context) int64 {
@@ -34,93 +48,24 @@ func (h *NodeHandler) List(c *gin.Context) {
 	userID := h.getUserID(c)
 	userRole := h.getUserRole(c)
 
-	rows, err := h.DB.Query(`
-		SELECT id, name, host, port, ssh_host, ssh_port, ssh_username,
-			   tls_cert_path, tls_cert_cn, status, last_seen, node_group,
-			   is_private, owner_id, visible_to_users, hidden_from_users,
-			   created_at, updated_at,
-			   connect_mode, node_port, node_host, bootstrap_token
-		FROM nodes ORDER BY name
-	`)
+	var nodes []model.Node
+	err := h.DB.Order("name").Find(&nodes).Error
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
 
-	var nodes []model.Node
-	for rows.Next() {
-		var n model.Node
-		var sshHost, sshUser, tlsCert, tlsCN, nodeGroup, visibleTo, hiddenFrom sql.NullString
-		var sshPort sql.NullInt64
-		var lastSeen sql.NullTime
-		var isPrivate, ownerID sql.NullInt64
-		var connectMode, nodeHost, bootstrapToken sql.NullString
-		var nodePort sql.NullInt64
-
-		err := rows.Scan(&n.ID, &n.Name, &n.Host, &n.Port, &sshHost, &sshPort,
-			&sshUser, &tlsCert, &tlsCN, &n.Status, &lastSeen, &nodeGroup,
-			&isPrivate, &ownerID, &visibleTo, &hiddenFrom,
-			&n.CreatedAt, &n.UpdatedAt,
-			&connectMode, &nodePort, &nodeHost, &bootstrapToken)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if sshHost.Valid {
-			n.SSHHost = sshHost.String
-		}
-		if sshPort.Valid {
-			n.SSHPort = int(sshPort.Int64)
-		}
-		if sshUser.Valid {
-			n.SSHUsername = sshUser.String
-		}
-		if tlsCert.Valid {
-			n.TLSCertPath = tlsCert.String
-		}
-		if tlsCN.Valid {
-			n.TLSCertCN = tlsCN.String
-		}
-		if lastSeen.Valid {
-			n.LastSeen = lastSeen.Time
-			n.Status = computeStatus(n.LastSeen)
-		}
-		if nodeGroup.Valid {
-			n.NodeGroup = nodeGroup.String
-		}
-		if isPrivate.Valid {
-			n.IsPrivate = isPrivate.Int64 == 1
-		}
-		if ownerID.Valid {
-			n.OwnerID = ownerID.Int64
-		}
-		if visibleTo.Valid {
-			n.VisibleTo, _ = model.ParseVisibleTo(visibleTo.String)
-		}
-		if hiddenFrom.Valid {
-			n.HiddenFrom, _ = model.ParseHiddenFrom(hiddenFrom.String)
-		}
-		if connectMode.Valid {
-			n.ConnectMode = connectMode.String
-		}
-		if nodePort.Valid {
-			n.NodePort = int(nodePort.Int64)
-		}
-		if nodeHost.Valid {
-			n.NodeHost = nodeHost.String
-		}
-		if bootstrapToken.Valid {
-			n.BootstrapToken = bootstrapToken.String
-		}
-
-		if userRole == "admin" || n.CanView(userID) {
-			nodes = append(nodes, n)
+	var filtered []model.Node
+	for i := range nodes {
+		if userRole == "admin" || nodes[i].CanView(userID) {
+			if nodes[i].LastSeen != nil {
+				nodes[i].Status = computeStatus(*nodes[i].LastSeen)
+			}
+			filtered = append(filtered, nodes[i])
 		}
 	}
 
-	c.JSON(http.StatusOK, nodes)
+	c.JSON(http.StatusOK, filtered)
 }
 
 func (h *NodeHandler) Get(c *gin.Context) {
@@ -129,26 +74,8 @@ func (h *NodeHandler) Get(c *gin.Context) {
 	userRole := h.getUserRole(c)
 
 	var n model.Node
-	var sshHost, sshUser, tlsCert, tlsCN, nodeGroup, visibleTo, hiddenFrom sql.NullString
-	var sshPort sql.NullInt64
-	var lastSeen sql.NullTime
-	var isPrivate, ownerID sql.NullInt64
-	var connectMode, nodeHost, bootstrapToken sql.NullString
-	var nodePort sql.NullInt64
-
-	err := h.DB.QueryRow(`
-		SELECT id, name, host, port, ssh_host, ssh_port, ssh_username,
-			   tls_cert_path, tls_cert_cn, status, last_seen, node_group,
-			   is_private, owner_id, visible_to_users, hidden_from_users,
-			   created_at, updated_at,
-			   connect_mode, node_port, node_host, bootstrap_token
-		FROM nodes WHERE id = ?
-	`, id).Scan(&n.ID, &n.Name, &n.Host, &n.Port, &sshHost, &sshPort,
-		&sshUser, &tlsCert, &tlsCN, &n.Status, &lastSeen, &nodeGroup,
-		&isPrivate, &ownerID, &visibleTo, &hiddenFrom, &n.CreatedAt, &n.UpdatedAt,
-		&connectMode, &nodePort, &nodeHost, &bootstrapToken)
-
-	if err == sql.ErrNoRows {
+	err := h.DB.First(&n, id).Error
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
@@ -157,79 +84,37 @@ func (h *NodeHandler) Get(c *gin.Context) {
 		return
 	}
 
-	if sshHost.Valid {
-		n.SSHHost = sshHost.String
-	}
-	if sshPort.Valid {
-		n.SSHPort = int(sshPort.Int64)
-	}
-	if sshUser.Valid {
-		n.SSHUsername = sshUser.String
-	}
-	if tlsCert.Valid {
-		n.TLSCertPath = tlsCert.String
-	}
-	if tlsCN.Valid {
-		n.TLSCertCN = tlsCN.String
-	}
-	if lastSeen.Valid {
-		n.LastSeen = lastSeen.Time
-		n.Status = computeStatus(n.LastSeen)
-	}
-	if nodeGroup.Valid {
-		n.NodeGroup = nodeGroup.String
-	}
-	if isPrivate.Valid {
-		n.IsPrivate = isPrivate.Int64 == 1
-	}
-	if ownerID.Valid {
-		n.OwnerID = ownerID.Int64
-	}
-	if visibleTo.Valid {
-		n.VisibleTo, _ = model.ParseVisibleTo(visibleTo.String)
-	}
-	if hiddenFrom.Valid {
-		n.HiddenFrom, _ = model.ParseHiddenFrom(hiddenFrom.String)
-	}
-	if connectMode.Valid {
-		n.ConnectMode = connectMode.String
-	}
-	if nodePort.Valid {
-		n.NodePort = int(nodePort.Int64)
-	}
-	if nodeHost.Valid {
-		n.NodeHost = nodeHost.String
-	}
-	if bootstrapToken.Valid {
-		n.BootstrapToken = bootstrapToken.String
+	if userRole != "admin" && !n.CanView(userID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
 	}
 
-	if userRole == "admin" || n.CanView(userID) {
-		c.JSON(http.StatusOK, n)
-	} else {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+	if n.LastSeen != nil {
+		n.Status = computeStatus(*n.LastSeen)
 	}
+
+	c.JSON(http.StatusOK, n)
 }
 
 func (h *NodeHandler) Create(c *gin.Context) {
 	userID := h.getUserID(c)
 
 	var req struct {
-		Name        string   `json:"name" binding:"required"`
-		Host        string   `json:"host" binding:"required"`
-		Port        int      `json:"port"`
-		SSHHost     string   `json:"ssh_host"`
-		SSHPort     int      `json:"ssh_port"`
-		SSHUsername string   `json:"ssh_username"`
-		TLSCertPath string   `json:"tls_cert_path"`
-		TLSCertCN   string   `json:"tls_cert_cn"`
-		NodeGroup   string   `json:"node_group"`
-		IsPrivate   bool     `json:"is_private"`
-		VisibleTo   []int64  `json:"visible_to"`
-		HiddenFrom  []int64  `json:"hidden_from"`
-		ConnectMode string   `json:"connect_mode"`
-		NodePort    int      `json:"node_port"`
-		NodeHost    string   `json:"node_host"`
+		Name        string  `json:"name" binding:"required"`
+		Host        string  `json:"host" binding:"required"`
+		Port        int     `json:"port"`
+		SSHHost     string  `json:"ssh_host"`
+		SSHPort     int     `json:"ssh_port"`
+		SSHUsername string  `json:"ssh_username"`
+		TLSCertPath string  `json:"tls_cert_path"`
+		TLSCertCN   string  `json:"tls_cert_cn"`
+		NodeGroup   string  `json:"node_group"`
+		IsPrivate   bool    `json:"is_private"`
+		VisibleTo   []int64 `json:"visible_to"`
+		HiddenFrom  []int64 `json:"hidden_from"`
+		ConnectMode string  `json:"connect_mode"`
+		NodePort    int     `json:"node_port"`
+		NodeHost    string  `json:"node_host"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,32 +122,49 @@ func (h *NodeHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if req.Port == 0 {
-		req.Port = 18888
+	port := req.Port
+	if port == 0 {
+		port = 18888
 	}
-	if req.NodePort == 0 {
-		req.NodePort = 18888
+	nodePort := req.NodePort
+	if nodePort == 0 {
+		nodePort = 18888
 	}
-	if req.ConnectMode == "" {
-		req.ConnectMode = "passive"
+	connectMode := req.ConnectMode
+	if connectMode == "" {
+		connectMode = "passive"
 	}
 
-	bootstrapToken := uuid.New().String()
 	visibleToJSON, _ := json.Marshal(req.VisibleTo)
 	hiddenFromJSON, _ := json.Marshal(req.HiddenFrom)
 
-	result, err := h.DB.Exec(`
-		INSERT INTO nodes (name, host, port, ssh_host, ssh_port, ssh_username, tls_cert_path, tls_cert_cn, status, node_group, is_private, owner_id, visible_to_users, hidden_from_users, connect_mode, node_port, node_host, bootstrap_token)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.Name, req.Host, req.Port, req.SSHHost, req.SSHPort, req.SSHUsername, req.TLSCertPath, req.TLSCertCN, req.NodeGroup, boolToInt(req.IsPrivate), userID, string(visibleToJSON), string(hiddenFromJSON), req.ConnectMode, req.NodePort, req.NodeHost, bootstrapToken)
+	node := &model.Node{
+		Name:         req.Name,
+		Host:         req.Host,
+		Port:         port,
+		SSHHost:      req.SSHHost,
+		SSHPort:      req.SSHPort,
+		SSHUsername:  req.SSHUsername,
+		TLSCertPath:  req.TLSCertPath,
+		TLSCertCN:    req.TLSCertCN,
+		Status:       "unknown",
+		NodeGroup:    req.NodeGroup,
+		IsPrivate:    req.IsPrivate,
+		OwnerID:      userID,
+		VisibleTo:    string(visibleToJSON),
+		HiddenFrom:   string(hiddenFromJSON),
+		ConnectMode:  connectMode,
+		NodePort:     nodePort,
+		NodeHost:     req.NodeHost,
+		BootstrapToken: uuid.New().String(),
+	}
 
-	if err != nil {
+	if err := h.DB.Create(node).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	id, _ := result.LastInsertId()
-	c.JSON(http.StatusCreated, gin.H{"id": id})
+	c.JSON(http.StatusCreated, gin.H{"id": node.ID})
 }
 
 func (h *NodeHandler) Update(c *gin.Context) {
@@ -271,12 +173,16 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	userRole := h.getUserRole(c)
 
 	var n model.Node
-	var ownerID sql.NullInt64
-	err := h.DB.QueryRow("SELECT owner_id FROM nodes WHERE id = ?", id).Scan(&ownerID)
-	if err == sql.ErrNoRows {
+	err := h.DB.First(&n, id).Error
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if !n.CanEdit(userID, userRole) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can update"})
 		return
@@ -297,32 +203,34 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if req.IsPrivate != nil && n.IsOwner(userID) {
-		_, err = h.DB.Exec("UPDATE nodes SET is_private = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", boolToInt(*req.IsPrivate), id)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
+	updates := make(map[string]interface{})
 
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Host != "" {
+		updates["host"] = req.Host
+	}
+	if req.Port != 0 {
+		updates["port"] = req.Port
+	}
+	if req.NodeGroup != "" {
+		updates["node_group"] = req.NodeGroup
+	}
+	if req.IsPrivate != nil && n.IsOwner(userID) {
+		updates["is_private"] = *req.IsPrivate
+	}
 	if req.VisibleTo != nil || req.HiddenFrom != nil {
 		visibleToJSON, _ := json.Marshal(req.VisibleTo)
 		hiddenFromJSON, _ := json.Marshal(req.HiddenFrom)
-		_, err = h.DB.Exec("UPDATE nodes SET visible_to_users = ?, hidden_from_users = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", string(visibleToJSON), string(hiddenFromJSON), id)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+		updates["visible_to"] = string(visibleToJSON)
+		updates["hidden_from"] = string(hiddenFromJSON)
 	}
 
-	_, err = h.DB.Exec(`
-		UPDATE nodes SET name = ?, host = ?, port = ?, node_group = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, req.Name, req.Host, req.Port, req.NodeGroup, id)
+	updates["updated_at"] = time.Now()
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if len(updates) > 0 {
+		h.DB.Model(&n).Updates(updates)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Updated"})
@@ -334,22 +242,22 @@ func (h *NodeHandler) Delete(c *gin.Context) {
 	userRole := h.getUserRole(c)
 
 	var n model.Node
-	var ownerID sql.NullInt64
-	err := h.DB.QueryRow("SELECT owner_id FROM nodes WHERE id = ?", id).Scan(&ownerID)
-	if err == sql.ErrNoRows {
+	err := h.DB.First(&n, id).Error
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	if !n.CanEdit(userID, userRole) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can delete"})
 		return
 	}
 
-	_, err = h.DB.Exec("DELETE FROM nodes WHERE id = ?", id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	h.DB.Delete(&n)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
@@ -360,31 +268,40 @@ func (h *NodeHandler) Connect(c *gin.Context) {
 	userRole := h.getUserRole(c)
 
 	var n model.Node
-	var ownerID sql.NullInt64
-	err := h.DB.QueryRow("SELECT owner_id FROM nodes WHERE id = ?", id).Scan(&ownerID)
-	if err == sql.ErrNoRows {
+	err := h.DB.First(&n, id).Error
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 		return
 	}
-	if !n.CanView(userID) && userRole != "admin" {
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if userRole != "admin" && !n.CanView(userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-	h.DB.Exec("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", id)
+	nodeIDStr := strconv.FormatInt(id, 10)
+	if h.connMgr != nil {
+		if _, ok := h.connMgr.GetConnection(nodeIDStr); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "offline",
+				"message": "Node is not connected. Please ensure the runtime is installed and running on the node.",
+			})
+			return
+		}
+	}
+
+	now := time.Now()
+	h.DB.Model(&n).Update("last_seen", now)
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
-		"message": "Connection check recorded",
+		"status":  "online",
+		"message": "Node is connected",
 		"node_id": id,
 	})
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func computeStatus(lastSeen time.Time) string {

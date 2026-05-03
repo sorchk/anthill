@@ -16,13 +16,13 @@ import (
 )
 
 func main() {
+
 	cfg := config.Load()
 
-	db, err := database.InitDB(cfg.DBPath)
+	db, err := database.InitDB(cfg.DBURL)
 	if err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
-	defer db.Close()
 
 	database.SetDB(db)
 
@@ -35,21 +35,11 @@ func main() {
 	connMgr := server.NewConnManager(db)
 	fmt.Printf("ConnManager initialized\n")
 
-	passiveServer := server.NewPassiveServer(18888, ca, connMgr)
-	fmt.Printf("PassiveServer created on port %d\n", 18888)
-
 	bootstrapHandler := handler.NewBootstrapHandler(db, ca)
 
-	r := router.Setup(db, cfg, bootstrapHandler)
-
-	go func() {
-		if err := passiveServer.Start(); err != nil {
-			log.Fatalf("Failed to start PassiveServer: %v", err)
-		}
-	}()
+	r := router.Setup(db, cfg, bootstrapHandler, connMgr)
 
 	fmt.Printf("Admin server starting on %s\n", cfg.ListenAddr)
-	fmt.Printf("Database: %s\n", cfg.DBPath)
 
 	go func() {
 		if err := r.Run(cfg.ListenAddr); err != nil {
@@ -65,10 +55,6 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*1000000000)
 	defer cancel()
-
-	if err := passiveServer.Stop(); err != nil {
-		fmt.Printf("Error stopping PassiveServer: %v\n", err)
-	}
 
 	if err := connMgr.Close(); err != nil {
 		fmt.Printf("Error closing ConnManager: %v\n", err)

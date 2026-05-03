@@ -1,17 +1,36 @@
 package router
 
 import (
-	"database/sql"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/config"
 	"anthill/admin/internal/handler"
 	"anthill/admin/internal/middleware"
+	"anthill/admin/internal/server"
 )
 
-func Setup(db *sql.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHandler) *gin.Engine {
+type connManagerAdapter struct {
+	cm *server.ConnManager
+}
+
+func (a *connManagerAdapter) GetConnection(nodeID string) (*handler.NodeConnectionInfo, bool) {
+	conn, ok := a.cm.GetConnection(nodeID)
+	if !ok {
+		return nil, false
+	}
+	return &handler.NodeConnectionInfo{
+		NodeID:        conn.NodeID,
+		Conn:          conn.Conn,
+		Protocol:      conn.Protocol,
+		LastHeartbeat: conn.LastHeartbeat,
+		Mode:          conn.Mode,
+	}, true
+}
+
+func Setup(db *gorm.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHandler, connMgr *server.ConnManager) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.Recovery())
@@ -22,21 +41,21 @@ func Setup(db *sql.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHa
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-		authHandler := handler.NewAuthHandler(db)
-		nodePluginHandler := handler.NewNodePluginHandler(db)
-		serviceHandler := handler.NewServicePluginHandler(db)
+	authHandler := handler.NewAuthHandler(db)
+	nodePluginHandler := handler.NewNodePluginHandler(db)
+	serviceHandler := handler.NewServicePluginHandler(db)
 
-		nodeHandler := handler.NewNodeHandler(db)
-		pluginDir := "./data/plugins"
-		pluginHandler := handler.NewPluginHandler(db, pluginDir)
-		auditHandler := handler.NewAuditLogHandler(db)
-		userHandler := handler.NewUserHandler(db)
-		statsHandler := handler.NewStatsHandler(db)
-		nodeGroupHandler := handler.NewNodeGroupHandler(db)
-		deploymentHandler := handler.NewDeploymentHandler(db)
-		deployHandler := handler.NewDeployHandler(db)
+	nodeHandler := handler.NewNodeHandler(db, &connManagerAdapter{cm: connMgr})
+	pluginDir := "./data/plugins"
+	pluginHandler := handler.NewPluginHandler(db, pluginDir)
+	auditHandler := handler.NewAuditLogHandler(db)
+	userHandler := handler.NewUserHandler(db)
+	statsHandler := handler.NewStatsHandler(db)
+	nodeGroupHandler := handler.NewNodeGroupHandler(db)
+	deploymentHandler := handler.NewDeploymentHandler(db)
+	deployHandler := handler.NewDeployHandler(db)
 
-		api := r.Group("/api")
+	api := r.Group("/api")
 	{
 		auth := api.Group("/auth")
 		{
@@ -96,14 +115,12 @@ func Setup(db *sql.DB, cfg *config.Config, bootstrapHandler *handler.BootstrapHa
 				nodes.POST("/:id/connect", middleware.AdminOnly(), nodeHandler.Connect)
 				nodes.POST("/:id/bootstrap", bootstrapHandler.Bootstrap)
 
-				// Node plugin management
 				nodes.GET("/:id/plugins", nodePluginHandler.ListForNode)
 				nodes.POST("/:id/plugins/install", nodePluginHandler.Install)
 				nodes.DELETE("/:id/plugins/:plugin", nodePluginHandler.Uninstall)
 				nodes.POST("/:id/plugins/:plugin/enable", nodePluginHandler.Enable)
 				nodes.POST("/:id/plugins/:plugin/disable", nodePluginHandler.Disable)
 
-				// Service plugin management
 				nodes.POST("/:id/services/:plugin/start", serviceHandler.Start)
 				nodes.POST("/:id/services/:plugin/stop", serviceHandler.Stop)
 				nodes.POST("/:id/services/:plugin/restart", serviceHandler.Restart)

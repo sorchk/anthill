@@ -20,8 +20,7 @@
     "loggingIn": "登录中...",
     "welcome": "欢迎回来",
     "loggedInAs": "登录为 {username}",
-    "loginFailed": "登录失败，请检查凭据",
-    "defaultCredentials": "默认: admin / admin123"
+    "loginFailed": "登录失败，请检查凭据"
   },
   "init": {
     "welcomeTitle": "欢迎使用 Anthill",

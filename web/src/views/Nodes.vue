@@ -154,8 +154,8 @@ async function handleAdd() {
 
 async function handleConnect(id: number) {
   try {
-    await api.post(`/nodes/${id}/connect`)
-    message.success(t('nodes.connectionInitiated'))
+    const res = await api.post(`/nodes/${id}/connect`)
+    message.success(res.data?.message || t('nodes.connectionInitiated'))
     loadData()
   } catch (e: any) {
     message.error(e?.response?.data?.error || t('nodes.failedToConnect'))

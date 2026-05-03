@@ -43,16 +43,20 @@ func AuditLogger() gin.HandlerFunc {
 			details = string(bodyBytes)
 		}
 
-		database.LogAudit(
-			userID,
-			username,
-			action,
-			c.Request.URL.Path,
-			c.Request.Method,
-			c.ClientIP(),
-			status,
-			details,
-		)
+		db, _ := database.GetDB()
+		if db != nil {
+			database.LogAudit(
+				db,
+				userID,
+				username,
+				action,
+				c.Request.URL.Path,
+				c.Request.Method,
+				c.ClientIP(),
+				status,
+				details,
+			)
+		}
 
 		_ = start
 	}

@@ -1,42 +1,28 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/model"
 )
 
 type NodeGroupHandler struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
-func NewNodeGroupHandler(db *sql.DB) *NodeGroupHandler {
+func NewNodeGroupHandler(db *gorm.DB) *NodeGroupHandler {
 	return &NodeGroupHandler{DB: db}
 }
 
 func (h *NodeGroupHandler) List(c *gin.Context) {
-	rows, err := h.DB.Query("SELECT id, name, description, created_at FROM node_groups ORDER BY name")
+	groups, err := model.ListNodeGroups(h.DB)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	defer rows.Close()
-
-	var groups []model.NodeGroup
-	for rows.Next() {
-		var g model.NodeGroup
-		var desc sql.NullString
-		if err := rows.Scan(&g.ID, &g.Name, &desc, &g.CreatedAt); err != nil {
-			continue
-		}
-		if desc.Valid {
-			g.Description = desc.String
-		}
-		groups = append(groups, g)
 	}
 
 	c.JSON(http.StatusOK, groups)
@@ -53,24 +39,27 @@ func (h *NodeGroupHandler) Create(c *gin.Context) {
 		return
 	}
 
-	result, err := h.DB.Exec(
-		"INSERT INTO node_groups (name, description) VALUES (?, ?)",
-		req.Name, req.Description,
-	)
-	if err != nil {
+	group := &model.NodeGroup{
+		Name:        req.Name,
+		Description: req.Description,
+	}
+
+	if err := h.DB.Create(group).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	id, _ := result.LastInsertId()
-	c.JSON(http.StatusCreated, gin.H{"id": id})
+	c.JSON(http.StatusCreated, gin.H{"id": group.ID})
 }
 
 func (h *NodeGroupHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-	_, err := h.DB.Exec("DELETE FROM node_groups WHERE id = ?", id)
-	if err != nil {
+	if err := model.DeleteNodeGroup(h.DB, id); err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Node group not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

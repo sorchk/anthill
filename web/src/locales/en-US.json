@@ -20,8 +20,7 @@
     "loggingIn": "Logging in...",
     "welcome": "Welcome back",
     "loggedInAs": "Logged in as {username}",
-    "loginFailed": "Login failed. Please check your credentials.",
-    "defaultCredentials": "Default: admin / admin123"
+    "loginFailed": "Login failed. Please check your credentials."
   },
   "init": {
     "welcomeTitle": "Welcome to Anthill",

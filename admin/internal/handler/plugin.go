@@ -2,7 +2,6 @@ package handler
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,40 +10,26 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"anthill/admin/internal/model"
 )
 
 type PluginHandler struct {
-	DB        *sql.DB
+	DB        *gorm.DB
 	PluginDir string
 }
 
-func NewPluginHandler(db *sql.DB, pluginDir string) *PluginHandler {
+func NewPluginHandler(db *gorm.DB, pluginDir string) *PluginHandler {
 	os.MkdirAll(pluginDir, 0755)
 	return &PluginHandler{DB: db, PluginDir: pluginDir}
 }
 
 func (h *PluginHandler) List(c *gin.Context) {
-	rows, err := h.DB.Query(`
-		SELECT id, name, version, description, file_path, file_size, plugin_type, checksum, created_at
-		FROM plugins ORDER BY name, version DESC
-	`)
+	plugins, err := model.ListPlugins(h.DB)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-	defer rows.Close()
-
-	var plugins []model.Plugin
-	for rows.Next() {
-		var p model.Plugin
-		err := rows.Scan(&p.ID, &p.Name, &p.Version, &p.Description, &p.FilePath, &p.FileSize, &p.PluginType, &p.Checksum, &p.CreatedAt)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		plugins = append(plugins, p)
 	}
 
 	c.JSON(http.StatusOK, plugins)
@@ -86,27 +71,31 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	writer := io.MultiWriter(out, hash)
 
 	if _, err := io.Copy(writer, file); err != nil {
+		os.Remove(filePath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	checksum := fmt.Sprintf("%x", hash.Sum(nil))
 
-	result, err := h.DB.Exec(`
-		INSERT INTO plugins (name, version, description, file_path, file_size, plugin_type, checksum)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, name, version, description, filePath, header.Size, pluginType, checksum)
+	plugin := &model.Plugin{
+		Name:       name,
+		Version:    version,
+		Description: description,
+		FilePath:   filePath,
+		FileSize:   header.Size,
+		PluginType: pluginType,
+		Checksum:   checksum,
+	}
 
-	if err != nil {
+	if err := h.DB.Create(plugin).Error; err != nil {
 		os.Remove(filePath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	id, _ := result.LastInsertId()
-
 	c.JSON(http.StatusCreated, gin.H{
-		"id":       id,
+		"id":       plugin.ID,
 		"checksum": checksum,
 		"size":     header.Size,
 	})
@@ -115,20 +104,22 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 func (h *PluginHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-	var filePath string
-	err := h.DB.QueryRow("SELECT file_path FROM plugins WHERE id = ?", id).Scan(&filePath)
-	if err == sql.ErrNoRows {
+	plugin, err := model.GetPluginByID(h.DB, id)
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
 		return
 	}
-
-	_, err = h.DB.Exec("DELETE FROM plugins WHERE id = ?", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	os.Remove(filePath)
+	if err := model.DeletePlugin(h.DB, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	os.Remove(plugin.FilePath)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
@@ -136,13 +127,16 @@ func (h *PluginHandler) Delete(c *gin.Context) {
 func (h *PluginHandler) Download(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 
-	var filePath, name string
-	err := h.DB.QueryRow("SELECT file_path, name FROM plugins WHERE id = ?", id).Scan(&filePath, &name)
-	if err == sql.ErrNoRows {
+	plugin, err := model.GetPluginByID(h.DB, id)
+	if err == gorm.ErrRecordNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Plugin not found"})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.wasm", name))
-	c.File(filePath)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.wasm", plugin.Name))
+	c.File(plugin.FilePath)
 }

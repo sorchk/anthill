@@ -116,7 +116,7 @@ const langOptions = [
 const userMenuOptions = [
   { label: t('nav.settings'), key: 'settings' },
   { type: 'divider', key: 'd1' },
-  { label: t('login.signIn'), key: 'logout' }
+  { label: t('login.signOut'), key: 'logout' }
 ]
 
 function handleLangChange(key: string) {
