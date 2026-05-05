@@ -1,115 +1,146 @@
 <template>
-  <div class="settings-page">
-    <h2 class="page-title">{{ t('settings.title') }}</h2>
+  <div class="settings-page max-w-4xl">
+    <h2 class="text-2xl font-semibold mb-6">{{ t('settings.title') }}</h2>
 
-    <n-tabs type="line" animated>
-      <n-tab-pane name="profile" :tab="t('settings.profile')">
-        <n-card :title="t('settings.profileInfo')">
-          <n-form :model="profileForm" :rules="profileRules" ref="profileFormRef" label-placement="top">
-            <n-form-item :label="t('users.username')" path="username">
-              <n-input v-model:value="profileForm.username" />
-            </n-form-item>
-            <n-form-item :label="t('users.role')">
-              <n-input :value="authStore.user?.role" disabled />
-            </n-form-item>
-          </n-form>
-          <template #footer>
-            <n-button type="primary" @click="updateProfile" :loading="savingProfile">
-              {{ t('settings.save') }}
-            </n-button>
-          </template>
-        </n-card>
-      </n-tab-pane>
+    <div class="space-y-6">
+      <Tabs v-model:value="activeTab">
+        <TabsList>
+          <TabsTrigger value="profile">{{ t('settings.profile') }}</TabsTrigger>
+          <TabsTrigger value="password">{{ t('settings.changePassword') }}</TabsTrigger>
+          <TabsTrigger value="appearance">{{ t('settings.appearance') }}</TabsTrigger>
+          <TabsTrigger v-if="authStore.isAdmin" value="system">{{ t('settings.system') }}</TabsTrigger>
+        </TabsList>
 
-      <n-tab-pane name="password" :tab="t('settings.changePassword')">
-        <n-card :title="t('settings.changePassword')">
-          <n-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-placement="top">
-            <n-form-item :label="t('users.currentPassword')" path="old_password">
-              <n-input
-                v-model:value="passwordForm.old_password"
-                type="password"
-                show-password-on="mousedown"
-                :placeholder="t('users.currentPassword')"
-              />
-            </n-form-item>
-            <n-form-item :label="t('users.newPassword')" path="new_password">
-              <n-input
-                v-model:value="passwordForm.new_password"
-                type="password"
-                show-password-on="mousedown"
-                :placeholder="t('users.newPassword')"
-              />
-            </n-form-item>
-            <n-form-item :label="t('settings.confirmPassword')" path="confirm_password">
-              <n-input
-                v-model:value="passwordForm.confirm_password"
-                type="password"
-                show-password-on="mousedown"
-                :placeholder="t('settings.confirmPassword')"
-              />
-            </n-form-item>
-          </n-form>
-          <template #footer>
-            <n-button type="primary" @click="changePassword" :loading="savingPassword">
-              {{ t('settings.changePassword') }}
-            </n-button>
-          </template>
-        </n-card>
-      </n-tab-pane>
+        <TabsContent value="profile">
+          <Card>
+            <CardHeader>
+              <CardTitle>{{ t('settings.profileInfo') }}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form @submit.prevent="updateProfile" class="space-y-4">
+                <div class="space-y-2">
+                  <Label for="username">{{ t('users.username') }}</Label>
+                  <Input id="username" v-model="profileForm.username" />
+                </div>
+                <div class="space-y-2">
+                  <Label for="role">{{ t('users.role') }}</Label>
+                  <Input id="role" :model-value="authStore.user?.role" disabled />
+                </div>
+                <Button type="submit" :disabled="savingProfile">
+                  <Loader2 v-if="savingProfile" class="mr-2 h-4 w-4 animate-spin" />
+                  {{ t('settings.save') }}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <n-tab-pane name="appearance" :tab="t('settings.appearance')">
-        <n-card :title="t('settings.appearance')">
-          <n-form :model="appearanceForm" label-placement="top">
-            <n-form-item :label="t('settings.language')">
-              <n-select
-                v-model:value="appearanceForm.language"
-                :options="languageOptions"
-                @update:value="changeLanguage"
-              />
-            </n-form-item>
-          </n-form>
-        </n-card>
-      </n-tab-pane>
+        <TabsContent value="password">
+          <Card>
+            <CardHeader>
+              <CardTitle>{{ t('settings.changePassword') }}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form @submit.prevent="changePassword" class="space-y-4">
+                <div class="space-y-2">
+                  <Label for="old-password">{{ t('users.currentPassword') }}</Label>
+                  <Input id="old-password" v-model="passwordForm.old_password" type="password" />
+                </div>
+                <div class="space-y-2">
+                  <Label for="new-password">{{ t('users.newPassword') }}</Label>
+                  <Input id="new-password" v-model="passwordForm.new_password" type="password" />
+                </div>
+                <div class="space-y-2">
+                  <Label for="confirm-password">{{ t('settings.confirmPassword') }}</Label>
+                  <Input id="confirm-password" v-model="passwordForm.confirm_password" type="password" />
+                </div>
+                <Button type="submit" :disabled="savingPassword">
+                  <Loader2 v-if="savingPassword" class="mr-2 h-4 w-4 animate-spin" />
+                  {{ t('settings.changePassword') }}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <n-tab-pane v-if="authStore.isAdmin" name="system" :tab="t('settings.system')">
-        <n-card :title="t('settings.systemInfo')">
-          <n-descriptions :column="2" bordered size="small">
-            <n-descriptions-item :label="t('settings.version')">v1.0.0</n-descriptions-item>
-            <n-descriptions-item :label="t('settings.database')">Postgres</n-descriptions-item>
-            <n-descriptions-item :label="t('settings.goVersion')">Go 1.21+</n-descriptions-item>
-            <n-descriptions-item :label="t('settings.frameworks')">Gin + Vue3</n-descriptions-item>
-          </n-descriptions>
-        </n-card>
+        <TabsContent value="appearance">
+          <Card>
+            <CardHeader>
+              <CardTitle>{{ t('settings.appearance') }}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div class="space-y-4">
+                <div class="space-y-2">
+                  <Label for="language">{{ t('settings.language') }}</Label>
+                  <Select v-model="appearanceForm.language" @update:modelValue="changeLanguage">
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="zh-CN">简体中文</SelectItem>
+                      <SelectItem value="en-US">English</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-        <n-card :title="t('settings.security')" style="margin-top: 16px">
-          <n-space vertical>
-            <n-text>{{ t('settings.sessionTimeout') }}: 24h</n-text>
-            <n-text>{{ t('settings.csrfProtection') }}: {{ t('common.enabled') }}</n-text>
-            <n-text>{{ t('settings.tlsVersion') }}: TLS 1.3</n-text>
-          </n-space>
-        </n-card>
-      </n-tab-pane>
-    </n-tabs>
+        <TabsContent v-if="authStore.isAdmin" value="system">
+          <div class="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>{{ t('settings.systemInfo') }}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                  <div><span class="text-muted-foreground">{{ t('settings.version') }}:</span> v1.0.0</div>
+                  <div><span class="text-muted-foreground">{{ t('settings.database') }}:</span> SQLite</div>
+                  <div><span class="text-muted-foreground">{{ t('settings.goVersion') }}:</span> Go 1.21+</div>
+                  <div><span class="text-muted-foreground">{{ t('settings.frameworks') }}:</span> Gin + Vue3</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{{ t('settings.security') }}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div class="space-y-2 text-sm">
+                  <div>{{ t('settings.sessionTimeout') }}: 24h</div>
+                  <div>{{ t('settings.csrfProtection') }}: {{ t('common.enabled') }}</div>
+                  <div>{{ t('settings.tlsVersion') }}: TLS 1.3</div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NTabs, NTabPane, NCard, NForm, NFormItem, NInput, NSelect,
-  NButton, NSpace, NText, NDescriptions, NDescriptionsItem, useMessage
-} from 'naive-ui'
+import { Loader2 } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import {Card, CardHeader, CardTitle, CardContent} from '@/components/ui'
+import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui'
+import { useToast } from '@/components/ui/useToast.ts'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 
 const { t, locale } = useI18n()
-const message = useMessage()
+const { toast } = useToast()
 const authStore = useAuthStore()
 
-const profileFormRef = ref()
-const passwordFormRef = ref()
-
+const activeTab = ref('profile')
 const savingProfile = ref(false)
 const savingPassword = ref(false)
 
@@ -127,54 +158,24 @@ const appearanceForm = ref({
   language: locale.value
 })
 
-const profileRules = {
-  username: { required: true, message: t('users.usernameRequired'), trigger: 'blur' }
-}
-
-const passwordRules = computed(() => ({
-  old_password: { required: true, message: t('users.currentPassword') + ' is required', trigger: 'blur' },
-  new_password: { required: true, message: t('users.newPassword') + ' is required', trigger: 'blur', minLength: 6 },
-  confirm_password: {
-    required: true,
-    message: t('settings.confirmPassword') + ' is required',
-    trigger: 'blur',
-    validator: (_rule: any, value: string) => {
-      if (value !== passwordForm.value.new_password) {
-        return new Error(t('settings.passwordMismatch'))
-      }
-      return true
-    }
-  }
-}))
-
-const languageOptions = [
-  { label: '简体中文', value: 'zh-CN' },
-  { label: 'English', value: 'en-US' }
-]
-
 async function updateProfile() {
-  try {
-    await profileFormRef.value?.validate()
-  } catch {
-    return
-  }
+  if (!profileForm.value.username) return
 
   savingProfile.value = true
   try {
     await api.put(`/users/${authStore.user?.id}`, { username: profileForm.value.username })
     authStore.user && (authStore.user.username = profileForm.value.username)
-    message.success(t('settings.profileUpdated'))
+    toast({ title: t('settings.profileUpdated') })
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('settings.updateFailed'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('settings.updateFailed'), variant: 'destructive' })
   } finally {
     savingProfile.value = false
   }
 }
 
 async function changePassword() {
-  try {
-    await passwordFormRef.value?.validate()
-  } catch {
+  if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
+    toast({ title: 'Error', description: t('settings.passwordMismatch'), variant: 'destructive' })
     return
   }
 
@@ -184,10 +185,10 @@ async function changePassword() {
       old_password: passwordForm.value.old_password,
       new_password: passwordForm.value.new_password
     })
-    message.success(t('settings.passwordChanged'))
+    toast({ title: t('settings.passwordChanged') })
     passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('settings.passwordChangeFailed'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('settings.passwordChangeFailed'), variant: 'destructive' })
   } finally {
     savingPassword.value = false
   }
@@ -198,15 +199,3 @@ function changeLanguage(lang: string) {
   localStorage.setItem('locale', lang)
 }
 </script>
-
-<style scoped>
-.settings-page {
-  max-width: 800px;
-}
-
-.page-title {
-  margin: 0 0 24px 0;
-  font-size: 24px;
-  font-weight: 600;
-}
-</style>

@@ -1,13 +1,5 @@
 <template>
-  <n-config-provider>
-    <n-message-provider>
-      <n-dialog-provider>
-        <n-notification-provider>
-          <router-view />
-        </n-notification-provider>
-      </n-dialog-provider>
-    </n-message-provider>
-  </n-config-provider>
+  <router-view />
 </template>
 
 <script setup lang="ts">
@@ -20,15 +12,3 @@ watch(locale, (newLocale) => {
   document.documentElement.setAttribute('lang', newLocale === 'zh-CN' ? 'zh' : 'en')
 }, { immediate: true })
 </script>
-
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
-</style>

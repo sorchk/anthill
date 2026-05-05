@@ -1,114 +1,184 @@
 <template>
-  <div class="users-page">
-    <div class="page-header">
-      <h2>{{ t('users.title') }}</h2>
-      <n-button type="primary" @click="showAddModal = true" v-if="authStore.isAdmin">
-        <template #icon>
-          <n-icon><add-outline /></n-icon>
-        </template>
+  <div class="users-page max-w-6xl">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-semibold">{{ t('users.title') }}</h2>
+      <Button v-if="authStore.isAdmin" @click="showAddModal = true">
+        <Plus class="h-4 w-4 mr-2" />
         {{ t('users.addUser') }}
-      </n-button>
+      </Button>
     </div>
 
-    <n-card bordered>
-      <template #header>
-        <n-space>
+    <Card>
+      <CardHeader>
+        <div class="flex items-center justify-between">
           <span>{{ t('users.total', { count: data.length }) }}</span>
-          <n-button size="small" @click="loadData">
-            <template #icon><n-icon><refresh-outline /></n-icon></template>
-          </n-button>
-        </n-space>
-      </template>
+          <Button variant="outline" size="sm" @click="loadData">
+            <Refresh class="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{{ t('users.id') }}</TableHead>
+              <TableHead>{{ t('users.username') }}</TableHead>
+              <TableHead>{{ t('users.role') }}</TableHead>
+              <TableHead>{{ t('users.created') }}</TableHead>
+              <TableHead>{{ t('users.actions') }}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="row in data" :key="row.id">
+              <TableCell>{{ row.id }}</TableCell>
+              <TableCell>{{ row.username }}</TableCell>
+              <TableCell>
+                <Badge :variant="row.role === 'admin' ? 'destructive' : row.role === 'operator' ? 'default' : 'secondary'">
+                  {{ row.role }}
+                </Badge>
+              </TableCell>
+              <TableCell>{{ new Date(row.created_at).toLocaleString() }}</TableCell>
+              <TableCell>
+                <div class="flex gap-2">
+                  <Button variant="ghost" size="sm" @click="openEditModal(row)">
+                    <Pencil class="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" @click="openPasswordModal(row, false)">
+                    <Key class="h-4 w-4" />
+                  </Button>
+                  <AlertDialog v-if="authStore.isAdmin && row.id !== authStore.user?.id">
+                    <AlertDialogTrigger as-child>
+                      <Button variant="ghost" size="sm">
+                        <Trash class="h-4 w-4 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{{ t('users.deleteConfirm') }}</AlertDialogTitle>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{{ t('users.cancel') }}</AlertDialogCancel>
+                        <AlertDialogAction @click="handleDelete(row.id)">{{ t('users.delete') }}</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
 
-      <n-data-table
-        :columns="columns"
-        :data="data"
-        :loading="loading"
-        :row-key="(row: any) => row.id"
-        :pagination="false"
-      />
-    </n-card>
+    <Dialog v-model:open="showAddModal">
+      <DialogContent class="sm:max-w-[450px]">
+        <DialogHeader>
+          <DialogTitle>{{ t('users.addUser') }}</DialogTitle>
+        </DialogHeader>
+        <form @submit.prevent="handleAdd" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="username">{{ t('users.username') }}</Label>
+            <Input id="username" v-model="formValue.username" placeholder="john_doe" />
+          </div>
+          <div class="space-y-2">
+            <Label for="password">{{ t('users.password') }}</Label>
+            <Input id="password" v-model="formValue.password" type="password" :placeholder="t('users.minLength')" />
+          </div>
+          <div class="space-y-2">
+            <Label for="role">{{ t('users.role') }}</Label>
+            <Select v-model="formValue.role">
+              <SelectTrigger>
+                <SelectValue :placeholder="t('users.roleRequired')" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">{{ t('users.roles.admin') }}</SelectItem>
+                <SelectItem value="operator">{{ t('users.roles.operator') }}</SelectItem>
+                <SelectItem value="viewer">{{ t('users.roles.viewer') }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showAddModal = false">{{ t('users.cancel') }}</Button>
+            <Button type="submit" :disabled="saving">{{ t('users.createUser') }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
-    <!-- Add User Modal -->
-    <n-modal v-model:show="showAddModal" preset="card" :title="t('users.addUser')" style="width: 450px">
-      <n-form :model="formValue" :rules="formRules" ref="formRef" label-placement="top">
-        <n-form-item :label="t('users.username')" path="username">
-          <n-input v-model:value="formValue.username" placeholder="john_doe" />
-        </n-form-item>
-        <n-form-item :label="t('users.password')" path="password">
-          <n-input v-model:value="formValue.password" type="password" show-password-on="mousedown" :placeholder="t('users.minLength')" />
-        </n-form-item>
-        <n-form-item :label="t('users.role')" path="role">
-          <n-select
-            v-model:value="formValue.role"
-            :options="roleOptions"
-            :placeholder="t('users.roleRequired')"
-          />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showAddModal = false">{{ t('users.cancel') }}</n-button>
-          <n-button type="primary" @click="handleAdd" :loading="saving">{{ t('users.createUser') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
+    <Dialog v-model:open="showEditModal">
+      <DialogContent class="sm:max-w-[450px]">
+        <DialogHeader>
+          <DialogTitle>{{ t('users.edit') }}</DialogTitle>
+        </DialogHeader>
+        <form @submit.prevent="handleUpdate" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="edit-username">{{ t('users.username') }}</Label>
+            <Input id="edit-username" v-model="editFormValue.username" />
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-role">{{ t('users.role') }}</Label>
+            <Select v-model="editFormValue.role">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">{{ t('users.roles.admin') }}</SelectItem>
+                <SelectItem value="operator">{{ t('users.roles.operator') }}</SelectItem>
+                <SelectItem value="viewer">{{ t('users.roles.viewer') }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showEditModal = false">{{ t('users.cancel') }}</Button>
+            <Button type="submit" :disabled="saving">{{ t('users.updateUser') }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
-    <!-- Edit User Modal -->
-    <n-modal v-model:show="showEditModal" preset="card" :title="t('users.edit')" style="width: 450px">
-      <n-form :model="editFormValue" :rules="editFormRules" ref="editFormRef" label-placement="top">
-        <n-form-item :label="t('users.username')" path="username">
-          <n-input v-model:value="editFormValue.username" placeholder="john_doe" />
-        </n-form-item>
-        <n-form-item :label="t('users.role')" path="role">
-          <n-select
-            v-model:value="editFormValue.role"
-            :options="roleOptions"
-            :placeholder="t('users.roleRequired')"
-          />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showEditModal = false">{{ t('users.cancel') }}</n-button>
-          <n-button type="primary" @click="handleUpdate" :loading="saving">{{ t('users.updateUser') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
-    <!-- Change Password Modal -->
-    <n-modal v-model:show="showPasswordModal" preset="card" :title="t('users.changePassword')" style="width: 400px">
-      <n-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-placement="top">
-        <n-form-item :label="t('users.currentPassword')" path="old_password" v-if="isSelfPassword">
-          <n-input v-model:value="passwordForm.old_password" type="password" show-password-on="mousedown" />
-        </n-form-item>
-        <n-form-item :label="t('users.newPassword')" path="new_password">
-          <n-input v-model:value="passwordForm.new_password" type="password" show-password-on="mousedown" :placeholder="t('users.minLength')" />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showPasswordModal = false">{{ t('users.cancel') }}</n-button>
-          <n-button type="primary" @click="handleChangePassword" :loading="saving">{{ t('users.change') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
+    <Dialog v-model:open="showPasswordModal">
+      <DialogContent class="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>{{ t('users.changePassword') }}</DialogTitle>
+        </DialogHeader>
+        <form @submit.prevent="handleChangePassword" class="space-y-4">
+          <div v-if="isSelfPassword" class="space-y-2">
+            <Label for="old-password">{{ t('users.currentPassword') }}</Label>
+            <Input id="old-password" v-model="passwordForm.old_password" type="password" />
+          </div>
+          <div class="space-y-2">
+            <Label for="new-password">{{ t('users.newPassword') }}</Label>
+            <Input id="new-password" v-model="passwordForm.new_password" type="password" :placeholder="t('users.minLength')" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showPasswordModal = false">{{ t('users.cancel') }}</Button>
+            <Button type="submit" :disabled="saving">{{ t('users.change') }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NDataTable, NCard, NButton, NSpace, NIcon, NModal, NForm,
-  NFormItem, NInput, NSelect, NTag, NPopconfirm, useMessage
-} from 'naive-ui'
-import { AddOutline, RefreshOutline, TrashOutline, CreateOutline, KeyOutline } from '@vicons/ionicons5'
+import { Plus, Refresh, Pencil, Key, Trash } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import {Card, CardHeader, CardTitle, CardContent} from '@/components/ui'
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui'
+import Badge from '@/components/ui/Badge.vue'
+import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui'
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui'
+import { useToast } from '@/components/ui/useToast.ts'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
-const message = useMessage()
+const { toast } = useToast()
 const authStore = useAuthStore()
 
 const loading = ref(true)
@@ -120,102 +190,19 @@ const showPasswordModal = ref(false)
 const editingUser = ref<any>(null)
 const isSelfPassword = ref(false)
 
-const formRef = ref()
-const editFormRef = ref()
-const passwordFormRef = ref()
-
 const formValue = ref({ username: '', password: '', role: 'viewer' })
 const editFormValue = ref({ username: '', role: '' })
 const passwordForm = ref({ old_password: '', new_password: '' })
 
-const roleOptions = computed(() => [
-  { label: () => t('users.roles.admin'), value: 'admin' },
-  { label: () => t('users.roles.operator'), value: 'operator' },
-  { label: () => t('users.roles.viewer'), value: 'viewer' }
-])
-
-const formRules = {
-  username: { required: true, message: t('users.usernameRequired'), trigger: 'blur' },
-  password: { required: true, message: t('users.passwordRequired'), trigger: 'blur', minLength: 6 },
-  role: { required: true, message: t('users.roleRequired'), trigger: 'change' }
-}
-
-const editFormRules = {
-  username: { required: true, message: t('users.usernameRequired'), trigger: 'blur' },
-  role: { required: true, message: t('users.roleRequired'), trigger: 'change' }
-}
-
-const passwordRules = {
-  new_password: { required: true, message: t('users.newPassword') + ' is required', trigger: 'blur', minLength: 6 }
-}
-
 const isAdmin = computed(() => authStore.isAdmin)
-
-const columns = computed(() => [
-  { title: () => t('users.id'), key: 'id', width: 80 },
-  { title: () => t('users.username'), key: 'username', width: 150 },
-  {
-    title: () => t('users.role'),
-    key: 'role',
-    width: 120,
-    render: (row: any) => {
-      const type = row.role === 'admin' ? 'error' : row.role === 'operator' ? 'warning' : 'default'
-      return h(NTag, { type, size: 'small' }, { default: () => row.role })
-    }
-  },
-  {
-    title: () => t('users.created'),
-    key: 'created_at',
-    width: 180,
-    render: (row: any) => new Date(row.created_at).toLocaleString()
-  },
-  {
-    title: () => t('users.actions'),
-    key: 'actions',
-    width: 180,
-    render: (row: any) => {
-      const actions: any[] = []
-
-      actions.push(
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          onClick: () => openEditModal(row)
-        }, { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) })
-      )
-
-      actions.push(
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          onClick: () => openPasswordModal(row, false)
-        }, { icon: () => h(NIcon, null, { default: () => h(KeyOutline) }) })
-      )
-
-      if (isAdmin.value && row.id !== authStore.user?.id) {
-        actions.push(
-          h(NPopconfirm, {
-            onPositiveClick: () => handleDelete(row.id)
-          }, {
-            trigger: () => h(NButton, { size: 'small', quaternary: true, circle: true },
-              { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }),
-            default: () => t('users.deleteConfirm')
-          })
-        )
-      }
-
-      return h(NSpace, { size: 'small' }, { default: () => actions })
-    }
-  }
-])
 
 async function loadData() {
   loading.value = true
   try {
     const res = await api.get('/users')
     data.value = res.data || []
-  } catch (e: any) {
-    message.error(t('users.failedToLoad'))
+  } catch {
+    toast({ title: 'Error', description: t('users.failedToLoad'), variant: 'destructive' })
   } finally {
     loading.value = false
   }
@@ -235,52 +222,40 @@ function openPasswordModal(user: any, isSelf: boolean) {
 }
 
 async function handleAdd() {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
+  if (!formValue.value.username || !formValue.value.password) return
 
   saving.value = true
   try {
     await api.post('/users', formValue.value)
-    message.success(t('users.userCreated'))
+    toast({ title: t('users.userCreated') })
     showAddModal.value = false
     formValue.value = { username: '', password: '', role: 'viewer' }
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('users.failedToCreate'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('users.failedToCreate'), variant: 'destructive' })
   } finally {
     saving.value = false
   }
 }
 
 async function handleUpdate() {
-  try {
-    await editFormRef.value?.validate()
-  } catch {
-    return
-  }
+  if (!editingUser.value) return
 
   saving.value = true
   try {
     await api.put(`/users/${editingUser.value.id}`, editFormValue.value)
-    message.success(t('users.userUpdated'))
+    toast({ title: t('users.userUpdated') })
     showEditModal.value = false
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('users.failedToUpdate'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('users.failedToUpdate'), variant: 'destructive' })
   } finally {
     saving.value = false
   }
 }
 
 async function handleChangePassword() {
-  try {
-    await passwordFormRef.value?.validate()
-  } catch {
-    return
-  }
+  if (!editingUser.value) return
 
   saving.value = true
   try {
@@ -288,10 +263,10 @@ async function handleChangePassword() {
       old_password: isSelfPassword.value ? passwordForm.value.old_password : undefined,
       new_password: passwordForm.value.new_password
     })
-    message.success(t('users.passwordChanged'))
+    toast({ title: t('users.passwordChanged') })
     showPasswordModal.value = false
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('users.failedToChangePassword'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('users.failedToChangePassword'), variant: 'destructive' })
   } finally {
     saving.value = false
   }
@@ -300,29 +275,12 @@ async function handleChangePassword() {
 async function handleDelete(id: number) {
   try {
     await api.delete(`/users/${id}`)
-    message.success(t('users.userDeleted'))
+    toast({ title: t('users.userDeleted') })
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('users.failedToDelete'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('users.failedToDelete'), variant: 'destructive' })
   }
 }
 
 onMounted(loadData)
 </script>
-
-<style scoped>
-.users-page {
-  max-width: 1200px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-header h2 {
-  margin: 0;
-}
-</style>

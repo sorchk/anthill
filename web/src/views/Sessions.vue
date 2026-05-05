@@ -1,63 +1,99 @@
 <template>
-  <div class="sessions-page">
-    <div class="page-header">
-      <h2>{{ t('sessions.title') }}</h2>
-      <n-button type="error" @click="showRevokeAllModal = true" v-if="data.length > 0">
-        <template #icon>
-          <n-icon><close-circle-outline /></n-icon>
-        </template>
+  <div class="sessions-page max-w-5xl">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-semibold">{{ t('sessions.title') }}</h2>
+      <Button v-if="data.length > 0" variant="destructive" @click="showRevokeAllModal = true">
+        <XCircle class="h-4 w-4 mr-2" />
         {{ t('sessions.revokeAll') }}
-      </n-button>
+      </Button>
     </div>
 
-    <n-card bordered>
-      <template #header>
-        <n-space>
-          <n-icon><time-outline /></n-icon>
+    <Card>
+      <CardHeader>
+        <div class="flex items-center gap-2">
+          <Clock class="h-4 w-4" />
           <span>{{ t('sessions.activeSessions', { count: data.length }) }}</span>
-        </n-space>
-      </template>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{{ t('sessions.ipAddress') }}</TableHead>
+              <TableHead>{{ t('sessions.userAgent') }}</TableHead>
+              <TableHead>{{ t('sessions.created') }}</TableHead>
+              <TableHead>{{ t('sessions.expires') }}</TableHead>
+              <TableHead>{{ t('sessions.actions') }}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="row in data" :key="row.id">
+              <TableCell>{{ row.ip }}</TableCell>
+              <TableCell class="max-w-[200px] truncate">{{ row.user_agent }}</TableCell>
+              <TableCell>{{ new Date(row.created_at).toLocaleString() }}</TableCell>
+              <TableCell>
+                <Badge :variant="isExpiringSoon(row.expires_at) ? 'warning' : 'default'">
+                  {{ new Date(row.expires_at).toLocaleString() }}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <AlertDialog>
+                  <AlertDialogTrigger as-child>
+                    <Button variant="ghost" size="sm">
+                      <LogOut class="h-4 w-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{{ t('sessions.revokeConfirm') }}</AlertDialogTitle>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{{ t('sessions.cancel') }}</AlertDialogCancel>
+                      <AlertDialogAction @click="handleRevoke(row.id)">{{ t('sessions.revoke') }}</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
 
-      <n-data-table
-        :columns="columns"
-        :data="data"
-        :loading="loading"
-        :row-key="(row: any) => row.id"
-        :pagination="false"
-      />
-    </n-card>
-
-    <n-modal v-model:show="showRevokeAllModal" preset="card" :title="t('sessions.revokeAll')" style="width: 400px">
-      <n-space vertical>
-        <n-text>{{ t('sessions.revokeAllConfirm') }}</n-text>
-        <n-text depth="3">{{ t('sessions.revokeAllWarning') }}</n-text>
-      </n-space>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showRevokeAllModal = false">{{ t('sessions.cancel') }}</n-button>
-          <n-button type="error" @click="handleRevokeAll" :loading="saving">{{ t('sessions.revokeAll') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
+    <AlertDialog v-model:open="showRevokeAllModal">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t('sessions.revokeAll') }}</AlertDialogTitle>
+        </AlertDialogHeader>
+        <div class="space-y-2">
+          <p>{{ t('sessions.revokeAllConfirm') }}</p>
+          <p class="text-sm text-muted-foreground">{{ t('sessions.revokeAllWarning') }}</p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t('sessions.cancel') }}</AlertDialogCancel>
+          <AlertDialogAction @click="handleRevokeAll">{{ t('sessions.revokeAll') }}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NDataTable, NCard, NButton, NSpace, NIcon, NTag, NModal, NText,
-  NPopconfirm, useMessage
-} from 'naive-ui'
-import {
-  TimeOutline, CloseCircleOutline, LogOutOutline
-} from '@vicons/ionicons5'
+import { XCircle, Clock, LogOut } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import {Card, CardHeader, CardTitle, CardContent} from '@/components/ui'
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui'
+import Badge from '@/components/ui/Badge.vue'
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui'
+import { useToast } from '@/components/ui/useToast.ts'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
 const { t } = useI18n()
-const message = useMessage()
+const { toast } = useToast()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -66,59 +102,11 @@ const saving = ref(false)
 const data = ref<any[]>([])
 const showRevokeAllModal = ref(false)
 
-const columns = [
-  {
-    title: () => t('sessions.ipAddress'),
-    key: 'ip',
-    width: 150
-  },
-  {
-    title: () => t('sessions.userAgent'),
-    key: 'user_agent',
-    ellipsis: { tooltip: true }
-  },
-  {
-    title: () => t('sessions.created'),
-    key: 'created_at',
-    width: 180,
-    render: (row: any) => new Date(row.created_at).toLocaleString()
-  },
-  {
-    title: () => t('sessions.expires'),
-    key: 'expires_at',
-    width: 180,
-    render: (row: any) => {
-      const expires = new Date(row.expires_at)
-      const now = new Date()
-      const isExpiringSoon = expires.getTime() - now.getTime() < 3600000
-
-      return h(NTag, {
-        type: isExpiringSoon ? 'warning' : 'default',
-        size: 'small'
-      }, {
-        default: () => expires.toLocaleString()
-      })
-    }
-  },
-  {
-    title: () => t('sessions.actions'),
-    key: 'actions',
-    width: 120,
-    render: (row: any) => h(NPopconfirm, {
-      onPositiveClick: () => handleRevoke(row.id)
-    }, {
-      trigger: () => h(NButton, {
-        size: 'small',
-        type: 'error',
-        quaternary: true
-      }, {
-        icon: () => h(NIcon, null, { default: () => h(LogOutOutline) }),
-        default: () => t('sessions.revoke')
-      }),
-      default: () => t('sessions.revokeConfirm')
-    })
-  }
-]
+function isExpiringSoon(expires_at: string) {
+  const expires = new Date(expires_at)
+  const now = new Date()
+  return expires.getTime() - now.getTime() < 3600000
+}
 
 async function loadData() {
   loading.value = true
@@ -126,7 +114,7 @@ async function loadData() {
     const res = await api.get('/sessions')
     data.value = res.data || []
   } catch {
-    message.error(t('sessions.failedToLoad'))
+    toast({ title: 'Error', description: t('sessions.failedToLoad'), variant: 'destructive' })
   } finally {
     loading.value = false
   }
@@ -135,10 +123,10 @@ async function loadData() {
 async function handleRevoke(id: number) {
   try {
     await api.delete(`/sessions/${id}`)
-    message.success(t('sessions.sessionRevoked'))
+    toast({ title: t('sessions.sessionRevoked') })
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('sessions.failedToRevoke'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('sessions.failedToRevoke'), variant: 'destructive' })
   }
 }
 
@@ -146,32 +134,15 @@ async function handleRevokeAll() {
   saving.value = true
   try {
     await api.delete('/sessions')
-    message.success(t('sessions.allSessionsRevoked'))
+    toast({ title: t('sessions.allSessionsRevoked') })
     showRevokeAllModal.value = false
     authStore.logout()
     router.push('/login')
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('sessions.failedToRevokeAll'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('sessions.failedToRevokeAll'), variant: 'destructive' })
     saving.value = false
   }
 }
 
 onMounted(loadData)
 </script>
-
-<style scoped>
-.sessions-page {
-  max-width: 1000px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-header h2 {
-  margin: 0;
-}
-</style>

@@ -1,161 +1,274 @@
 <template>
-  <div class="tunnels-page">
-    <div class="page-header">
-      <h2>{{ t('tunnels.title') }}</h2>
-      <n-button type="primary" @click="showAddModal = true">
-        <template #icon>
-          <n-icon><add-outline /></n-icon>
-        </template>
+  <div class="tunnels-page max-w-7xl">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-semibold">{{ t('tunnels.title') }}</h2>
+      <Button @click="showAddModal = true">
+        <Plus class="h-4 w-4 mr-2" />
         {{ t('tunnels.addTunnel') }}
-      </n-button>
+      </Button>
     </div>
 
-    <n-card bordered>
-      <template #header>
-        <n-space>
+    <Card>
+      <CardHeader>
+        <div class="flex items-center justify-between">
           <span>{{ t('tunnels.total', { count: data.length }) }}</span>
-          <n-button size="small" @click="loadData">
-            <template #icon><n-icon><refresh-outline /></n-icon></template>
-          </n-button>
-        </n-space>
-      </template>
+          <Button variant="outline" size="sm" @click="loadData">
+            <Refresh class="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{{ t('tunnels.name') }}</TableHead>
+              <TableHead>{{ t('tunnels.type') }}</TableHead>
+              <TableHead>{{ t('tunnels.status') }}</TableHead>
+              <TableHead>{{ t('tunnels.transportMode') }}</TableHead>
+              <TableHead>{{ t('tunnels.localAddr') }}</TableHead>
+              <TableHead>{{ t('tunnels.remoteAddr') }}</TableHead>
+              <TableHead>{{ t('tunnels.e2eEnabled') }}</TableHead>
+              <TableHead>{{ t('tunnels.bytesIn') }}</TableHead>
+              <TableHead>{{ t('tunnels.bytesOut') }}</TableHead>
+              <TableHead>{{ t('tunnels.actions') }}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="row in data" :key="row.id">
+              <TableCell>{{ row.name }}</TableCell>
+              <TableCell>{{ row.type }}</TableCell>
+              <TableCell>
+                <Badge :variant="getStatusVariant(row.status)">{{ row.status }}</Badge>
+              </TableCell>
+              <TableCell>{{ row.transport_mode }}</TableCell>
+              <TableCell>{{ row.local_addr }}</TableCell>
+              <TableCell>{{ row.remote_addr }}</TableCell>
+              <TableCell>
+                <Badge :variant="row.e2e_enabled ? 'default' : 'secondary'">{{ row.e2e_enabled ? 'Yes' : 'No' }}</Badge>
+              </TableCell>
+              <TableCell>{{ formatBytes(row.bytes_in || 0) }}</TableCell>
+              <TableCell>{{ formatBytes(row.bytes_out || 0) }}</TableCell>
+              <TableCell>
+                <div class="flex gap-2">
+                  <Button variant="ghost" size="icon" @click="handleToggle(row.id)" :title="row.status === 'active' ? t('tunnels.pause') : t('tunnels.resume')">
+                    <Pause v-if="row.status === 'active'" class="h-4 w-4" />
+                    <Play v-else class="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" @click="openEditModal(row)">
+                    <Pencil class="h-4 w-4" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger as-child>
+                      <Button variant="ghost" size="icon">
+                        <Trash class="h-4 w-4 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{{ t('tunnels.deleteConfirm') }}</AlertDialogTitle>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{{ t('tunnels.cancel') }}</AlertDialogCancel>
+                        <AlertDialogAction @click="handleDelete(row.id)">{{ t('tunnels.delete') }}</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
 
-      <n-data-table
-        :columns="columns"
-        :data="data"
-        :loading="loading"
-        :row-key="(row: any) => row.id"
-        :pagination="false"
-      />
-    </n-card>
+    <Dialog v-model:open="showAddModal">
+      <DialogContent class="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>{{ t('tunnels.addTunnel') }}</DialogTitle>
+        </DialogHeader>
+        <form @submit.prevent="handleAdd" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="name">{{ t('tunnels.name') }}</Label>
+            <Input id="name" v-model="formValue.name" placeholder="My Tunnel" />
+          </div>
+          <div class="space-y-2">
+            <Label for="type">{{ t('tunnels.type') }}</Label>
+            <Select v-model="formValue.type">
+              <SelectTrigger>
+                <SelectValue :placeholder="t('tunnels.selectType')" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="port_forward">Port Forward</SelectItem>
+                <SelectItem value="socks5">SOCKS5</SelectItem>
+                <SelectItem value="http">HTTP Proxy</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="node">{{ t('tunnels.node') }}</Label>
+            <Select v-model="formValue.node_id">
+              <SelectTrigger>
+                <SelectValue :placeholder="t('tunnels.selectNode')" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="n in nodeOptions" :key="n.value" :value="n.value">{{ n.label }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="transport">{{ t('tunnels.transportMode') }}</Label>
+            <Select v-model="formValue.transport_mode">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="direct">Direct</SelectItem>
+                <SelectItem value="relay">Relay</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="local">{{ t('tunnels.localAddr') }}</Label>
+            <Input id="local" v-model="formValue.local_addr" placeholder=":8080" />
+          </div>
+          <div class="space-y-2">
+            <Label for="remote">{{ t('tunnels.remoteAddr') }}</Label>
+            <Input id="remote" v-model="formValue.remote_addr" placeholder="10.0.0.1:80" />
+          </div>
+          <div class="space-y-2">
+            <Label for="obfuscation">{{ t('tunnels.obfuscationMode') }}</Label>
+            <Select v-model="formValue.obfuscation_mode">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="http2_masquerade">HTTP/2 Masquerade</SelectItem>
+                <SelectItem value="domain_fronting">Domain Fronting</SelectItem>
+                <SelectItem value="traffic_padding">Traffic Padding</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="flex items-center gap-2">
+            <Label for="e2e">{{ t('tunnels.e2eEnabled') }}</Label>
+            <input id="e2e" type="checkbox" v-model="formValue.e2e_enabled" class="-checkbox" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showAddModal = false">{{ t('tunnels.cancel') }}</Button>
+            <Button type="submit" :disabled="saving">{{ t('tunnels.add') }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
-    <n-modal v-model:show="showAddModal" preset="card" :title="t('tunnels.addTunnel')" style="width: 600px">
-      <n-form :model="formValue" :rules="rules" ref="formRef" label-placement="top">
-        <n-form-item :label="t('tunnels.name')" path="name">
-          <n-input v-model:value="formValue.name" placeholder="My Tunnel" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.type')" path="type">
-          <n-select
-            v-model:value="formValue.type"
-            :options="typeOptions"
-            :placeholder="t('tunnels.selectType')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.node')" path="node_id">
-          <n-select
-            v-model:value="formValue.node_id"
-            :options="nodeOptions"
-            :placeholder="t('tunnels.selectNode')"
-            :loading="loadingNodes"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.transportMode')" path="transport_mode">
-          <n-select
-            v-model:value="formValue.transport_mode"
-            :options="transportModeOptions"
-            :placeholder="t('tunnels.selectTransportMode')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.localAddr')" path="local_addr">
-          <n-input v-model:value="formValue.local_addr" placeholder=":8080" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.remoteAddr')" path="remote_addr">
-          <n-input v-model:value="formValue.remote_addr" placeholder="10.0.0.1:80" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.obfuscationMode')" path="obfuscation_mode">
-          <n-select
-            v-model:value="formValue.obfuscation_mode"
-            :options="obfuscationModeOptions"
-            :placeholder="t('tunnels.selectObfuscationMode')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.e2eEnabled')" path="e2e_enabled">
-          <n-switch v-model:value="formValue.e2e_enabled" />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showAddModal = false">{{ t('tunnels.cancel') }}</n-button>
-          <n-button type="primary" @click="handleAdd" :loading="saving">{{ t('tunnels.add') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
-    <n-modal v-model:show="showEditModal" preset="card" :title="t('tunnels.editTunnel')" style="width: 600px">
-      <n-form :model="editFormValue" :rules="rules" ref="editFormRef" label-placement="top">
-        <n-form-item :label="t('tunnels.name')" path="name">
-          <n-input v-model:value="editFormValue.name" placeholder="My Tunnel" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.type')" path="type">
-          <n-select
-            v-model:value="editFormValue.type"
-            :options="typeOptions"
-            :placeholder="t('tunnels.selectType')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.transportMode')" path="transport_mode">
-          <n-select
-            v-model:value="editFormValue.transport_mode"
-            :options="transportModeOptions"
-            :placeholder="t('tunnels.selectTransportMode')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.localAddr')" path="local_addr">
-          <n-input v-model:value="editFormValue.local_addr" placeholder=":8080" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.remoteAddr')" path="remote_addr">
-          <n-input v-model:value="editFormValue.remote_addr" placeholder="10.0.0.1:80" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.obfuscationMode')" path="obfuscation_mode">
-          <n-select
-            v-model:value="editFormValue.obfuscation_mode"
-            :options="obfuscationModeOptions"
-            :placeholder="t('tunnels.selectObfuscationMode')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.e2eEnabled')" path="e2e_enabled">
-          <n-switch v-model:value="editFormValue.e2e_enabled" />
-        </n-form-item>
-        <n-form-item :label="t('tunnels.status')" path="status">
-          <n-select
-            v-model:value="editFormValue.status"
-            :options="statusOptions"
-            :placeholder="t('tunnels.selectStatus')"
-          />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showEditModal = false">{{ t('tunnels.cancel') }}</n-button>
-          <n-button type="primary" @click="handleEdit" :loading="saving">{{ t('tunnels.save') }}</n-button>
-        </n-space>
-      </template>
-    </n-modal>
+    <Dialog v-model:open="showEditModal">
+      <DialogContent class="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>{{ t('tunnels.editTunnel') }}</DialogTitle>
+        </DialogHeader>
+        <form @submit.prevent="handleEdit" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="edit-name">{{ t('tunnels.name') }}</Label>
+            <Input id="edit-name" v-model="editFormValue.name" />
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-type">{{ t('tunnels.type') }}</Label>
+            <Select v-model="editFormValue.type">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="port_forward">Port Forward</SelectItem>
+                <SelectItem value="socks5">SOCKS5</SelectItem>
+                <SelectItem value="http">HTTP Proxy</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-transport">{{ t('tunnels.transportMode') }}</Label>
+            <Select v-model="editFormValue.transport_mode">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="direct">Direct</SelectItem>
+                <SelectItem value="relay">Relay</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-local">{{ t('tunnels.localAddr') }}</Label>
+            <Input id="edit-local" v-model="editFormValue.local_addr" />
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-remote">{{ t('tunnels.remoteAddr') }}</Label>
+            <Input id="edit-remote" v-model="editFormValue.remote_addr" />
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-obfuscation">{{ t('tunnels.obfuscationMode') }}</Label>
+            <Select v-model="editFormValue.obfuscation_mode">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="http2_masquerade">HTTP/2 Masquerade</SelectItem>
+                <SelectItem value="domain_fronting">Domain Fronting</SelectItem>
+                <SelectItem value="traffic_padding">Traffic Padding</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-2">
+            <Label for="edit-status">{{ t('tunnels.status') }}</Label>
+            <Select v-model="editFormValue.status">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="paused">Paused</SelectItem>
+                <SelectItem value="stopped">Stopped</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showEditModal = false">{{ t('tunnels.cancel') }}</Button>
+            <Button type="submit" :disabled="saving">{{ t('tunnels.save') }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NDataTable, NCard, NButton, NSpace, NIcon, NModal, NForm,
-  NFormItem, NInput, NSelect, NSwitch, NTag, NPopconfirm, useMessage
-} from 'naive-ui'
-import { AddOutline, RefreshOutline, TrashOutline, PencilOutline, PlayOutline, PauseOutline } from '@vicons/ionicons5'
+import { Plus, Refresh, Pencil, Trash, Pause, Play } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import {Card, CardHeader, CardTitle, CardContent} from '@/components/ui'
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui'
+import Badge from '@/components/ui/Badge.vue'
+import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui'
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui'
+import { useToast } from '@/components/ui/useToast.ts'
 import api from '@/api'
 import { tunnelApi, type Tunnel, type CreateTunnelRequest, type UpdateTunnelRequest } from '@/api/tunnel'
 
 const { t } = useI18n()
-const message = useMessage()
+const { toast } = useToast()
+
 const loading = ref(true)
 const saving = ref(false)
-const loadingNodes = ref(false)
 const data = ref<Tunnel[]>([])
 const nodes = ref<any[]>([])
 const showAddModal = ref(false)
 const showEditModal = ref(false)
-const formRef = ref()
-const editFormRef = ref()
 const editingId = ref<number | null>(null)
 
 const formValue = ref<CreateTunnelRequest>({
@@ -180,103 +293,7 @@ const editFormValue = ref<UpdateTunnelRequest & { id?: number }>({
   status: ''
 })
 
-const rules = {
-  name: { required: true, message: t('tunnels.name') + ' is required' },
-  type: { required: true, message: t('tunnels.type') + ' is required' },
-  node_id: { required: true, message: t('tunnels.node') + ' is required' }
-}
-
-const typeOptions = [
-  { label: 'Port Forward', value: 'port_forward' },
-  { label: 'SOCKS5', value: 'socks5' },
-  { label: 'HTTP Proxy', value: 'http' }
-]
-
-const transportModeOptions = [
-  { label: 'Auto', value: 'auto' },
-  { label: 'Direct', value: 'direct' },
-  { label: 'Relay', value: 'relay' }
-]
-
-const obfuscationModeOptions = [
-  { label: 'None', value: 'none' },
-  { label: 'HTTP/2 Masquerade', value: 'http2_masquerade' },
-  { label: 'Domain Fronting', value: 'domain_fronting' },
-  { label: 'Traffic Padding', value: 'traffic_padding' }
-]
-
-const statusOptions = [
-  { label: 'Active', value: 'active' },
-  { label: 'Paused', value: 'paused' },
-  { label: 'Stopped', value: 'stopped' }
-]
-
 const nodeOptions = ref<{ label: string; value: string }[]>([])
-
-const columns = [
-  { title: () => t('tunnels.name'), key: 'name', width: 150 },
-  { title: () => t('tunnels.type'), key: 'type', width: 120 },
-  {
-    title: () => t('tunnels.status'),
-    key: 'status',
-    width: 100,
-    render: (row: any) => {
-      const type = row.status === 'active' ? 'success' : row.status === 'paused' ? 'warning' : 'default'
-      return h(NTag, { type, size: 'small' }, { default: () => row.status || 'unknown' })
-    }
-  },
-  { title: () => t('tunnels.transportMode'), key: 'transport_mode', width: 120 },
-  { title: () => t('tunnels.localAddr'), key: 'local_addr', width: 120 },
-  { title: () => t('tunnels.remoteAddr'), key: 'remote_addr', width: 150 },
-  {
-    title: () => t('tunnels.e2eEnabled'),
-    key: 'e2e_enabled',
-    width: 100,
-    render: (row: any) => h(NTag, { type: row.e2e_enabled ? 'success' : 'default', size: 'small' }, {
-      default: () => row.e2e_enabled ? 'Yes' : 'No'
-    })
-  },
-  {
-    title: () => t('tunnels.bytesIn'),
-    key: 'bytes_in',
-    width: 100,
-    render: (row: any) => formatBytes(row.bytes_in || 0)
-  },
-  {
-    title: () => t('tunnels.bytesOut'),
-    key: 'bytes_out',
-    width: 100,
-    render: (row: any) => formatBytes(row.bytes_out || 0)
-  },
-  {
-    title: () => t('tunnels.actions'),
-    key: 'actions',
-    width: 150,
-    render: (row: any) => h(NSpace, { size: 'small' }, {
-      default: () => [
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          onClick: () => handleToggle(row.id),
-          title: row.status === 'active' ? t('tunnels.pause') : t('tunnels.resume')
-        }, { icon: () => h(NIcon, null, { default: () => row.status === 'active' ? h(PauseOutline) : h(PlayOutline) }) }),
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          onClick: () => openEditModal(row),
-          title: t('tunnels.edit')
-        }, { icon: () => h(NIcon, null, { default: () => h(PencilOutline) }) }),
-        h(NPopconfirm, {
-          onPositiveClick: () => handleDelete(row.id)
-        }, {
-          trigger: () => h(NButton, { size: 'small', quaternary: true, circle: true },
-            { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }),
-          default: () => t('tunnels.deleteConfirm')
-        })
-      ]
-    })
-  }
-]
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -286,19 +303,27 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
+function getStatusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+    active: 'default',
+    paused: 'secondary',
+    stopped: 'outline'
+  }
+  return variants[status] || 'outline'
+}
+
 async function loadData() {
   loading.value = true
   try {
     data.value = await tunnelApi.list()
-  } catch (e) {
-    message.error(t('tunnels.failedToLoad'))
+  } catch {
+    toast({ title: 'Error', description: t('tunnels.failedToLoad'), variant: 'destructive' })
   } finally {
     loading.value = false
   }
 }
 
 async function loadNodes() {
-  loadingNodes.value = true
   try {
     const res = await api.get('/nodes')
     nodes.value = res.data || []
@@ -308,22 +333,14 @@ async function loadNodes() {
     }))
   } catch (e) {
     console.error('Failed to load nodes', e)
-  } finally {
-    loadingNodes.value = false
   }
 }
 
 async function handleAdd() {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
-
   saving.value = true
   try {
     await tunnelApi.create(formValue.value)
-    message.success(t('tunnels.tunnelCreated'))
+    toast({ title: t('tunnels.tunnelCreated') })
     showAddModal.value = false
     formValue.value = {
       name: '',
@@ -337,7 +354,7 @@ async function handleAdd() {
     }
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('tunnels.failedToCreate'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('tunnels.failedToCreate'), variant: 'destructive' })
   } finally {
     saving.value = false
   }
@@ -364,11 +381,11 @@ async function handleEdit() {
   saving.value = true
   try {
     await tunnelApi.update(editingId.value, editFormValue.value)
-    message.success(t('tunnels.tunnelUpdated'))
+    toast({ title: t('tunnels.tunnelUpdated') })
     showEditModal.value = false
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('tunnels.failedToUpdate'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('tunnels.failedToUpdate'), variant: 'destructive' })
   } finally {
     saving.value = false
   }
@@ -377,20 +394,20 @@ async function handleEdit() {
 async function handleToggle(id: number) {
   try {
     const res = await tunnelApi.toggle(id)
-    message.success(res.status === 'active' ? t('tunnels.tunnelResumed') : t('tunnels.tunnelPaused'))
+    toast({ title: res.status === 'active' ? t('tunnels.tunnelResumed') : t('tunnels.tunnelPaused') })
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('tunnels.failedToToggle'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('tunnels.failedToToggle'), variant: 'destructive' })
   }
 }
 
 async function handleDelete(id: number) {
   try {
     await tunnelApi.delete(id)
-    message.success(t('tunnels.tunnelDeleted'))
+    toast({ title: t('tunnels.tunnelDeleted') })
     loadData()
   } catch (e: any) {
-    message.error(e?.response?.data?.error || t('tunnels.failedToDelete'))
+    toast({ title: 'Error', description: e?.response?.data?.error || t('tunnels.failedToDelete'), variant: 'destructive' })
   }
 }
 
@@ -401,18 +418,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.tunnels-page {
-  max-width: 1400px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-header h2 {
-  margin: 0;
+.checkbox {
+  width: 16px;
+  height: 16px;
 }
 </style>

@@ -83,7 +83,7 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
 | 术语 | 英文 | 说明 |
 |------|------|------|
 | 运行时节点 | Runtime Node | Go 编写的 TCP 服务器，运行在被管理的机器上 |
-| 运行时管理服务 | Runtime Management Service | Gin 后端 + NaiveUI 前端，提供 Web 管理界面 |
+| 运行时管理服务 | Runtime Management Service | Gin 后端 + shadcn-vue 前端，提供 Web 管理界面 |
 | 客户端 | Client | Tauri GUI 桌面客户端或 CLI |
 | 节点 | Node | 同"运行时节点" |
 
@@ -103,7 +103,7 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
 │                    Anthill Platform                          │
 ├─────────────┬─────────────┬─────────────┬───────────────────┤
 │   Admin     │    Web      │   Runtime   │      Client       │
-│  (Gin+Go)   │ (Vue3+NaiveUI) │  (Go Node)  │   (Tauri GUI)    │
+│  (Gin+Go)   │ (Vue3+shadcn-vue) │  (Go Node)  │   (Tauri GUI)    │
 └─────────────┴─────────────┴─────────────┴───────────────────┘
        │               │              │              │
        └───────────────┴──────────────┴──────────────┘
@@ -134,7 +134,7 @@ Anthill 是一个基于 TCP 协议的远程管理平台，支持 WASM 插件扩�
 | 组件 | 描述 | 技术栈 |
 |------|------|--------|
 | `admin/` | Go + Gin 后端 + SQLite | Web 管理服务 API |
-| `web/` | Vue3 + NaiveUI 前端 | Web 管理界面 |
+| `web/` | Vue3 + shadcn-vue 前端 | Web 管理界面 |
 | `runtime/` | 轻量级节点代理 | 运行在目标机器上 |
 
 > 注：所有功能通过 Admin Web 统一控制，用户无需安装单独客户端
@@ -461,7 +461,7 @@ type ServicePlugin interface {
 | 后端框架 | Gin | Go Web 框架 |
 | 数据库 | SQLite | 轻量级关系型数据库 |
 | 前端框架 | Vue 3 + TypeScript | 渐进式框架 |
-| UI 组件库 | NaiveUI | Vue 3 组件库 |
+| UI 组件库 | shadcn-vue | Vue 3 组件库 |
 | 状态管理 | Pinia | Vue 3 状态管理 |
 | HTTP 客户端 | Axios | HTTP 客户端 |
 | 路由 | Vue Router 4 | Vue 路由 |
@@ -475,7 +475,7 @@ type ServicePlugin interface {
 |------|------|------|
 | GUI 框架 | Tauri 2.x | 跨平台桌面应用 |
 | 前端 | Vue 3 + TypeScript | GUI 前端 |
-| UI 组件 | NaiveUI | 组件库 |
+| UI 组件 | shadcn-vue | 组件库 |
 | 终端 | xterm.js | Web 终端模拟器 |
 | CLI | Go + cobra | 命令行框架 |
 
@@ -997,7 +997,7 @@ anthill/
 │   ├── go.mod
 │   └── go.sum
 │
-├── web/                            # 前端 (Vue3 + NaiveUI)
+├── web/                            # 前端 (Vue3 + shadcn-vue)
 │   ├── src/
 │   │   ├── api/                   # API 调用
 │   │   ├── components/            # 公共组件
@@ -1313,7 +1313,7 @@ config:
 - Go 官方文档: https://go.dev/doc/
 - wazero 文档: https://wazero.io/
 - Gin 文档: https://gin-gonic.com/docs/
-- NaiveUI 文档: https://www.naiveui.com/
+- shadcn-vue 文档: https://www.shadcn-vue.com/
 - Tauri 文档: https://tauri.app/
 - Vue 3 文档: https://vuejs.org/
 - TLS 1.3 RFC: https://datatracker.ietf.org/doc/html/rfc8446

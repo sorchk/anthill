@@ -61,6 +61,6 @@ runtime:
 	cd runtime && air
 
 clean:
-	cd web && npm run clean && rm -rf node_modules && rm -rf dist/
+	cd web && rm -rf node_modules && rm -rf dist/
 	cd admin && go clean && rm -f dist/
 	cd runtime && go clean && rm -f dist/

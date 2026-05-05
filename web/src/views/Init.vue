@@ -1,82 +1,58 @@
 <template>
-  <div class="init-page">
-    <div class="init-card">
-      <div class="init-header">
-        <n-icon size="48" depth="3">
-          <server-outline />
-        </n-icon>
-        <h1>{{ t('init.welcomeTitle') }}</h1>
-        <p>{{ t('init.welcomeSubtitle') }}</p>
+  <div class="flex min-h-screen items-center justify-center bg-gray-100">
+    <div class="w-full max-w-[400px] p-8 bg-white rounded-lg shadow-lg">
+      <div v-if="step === 1" class="space-y-6">
+        <div class="text-center">
+          <Server class="h-12 w-12 mx-auto mb-4 text-primary" />
+          <h1 class="text-2xl font-semibold">{{ t('init.welcomeTitle') }}</h1>
+          <p class="text-sm text-muted-foreground mt-1">{{ t('init.welcomeSubtitle') }}</p>
+        </div>
+
+        <form @submit.prevent="handleNext" class="space-y-4">
+          <div class="space-y-2">
+            <Label for="username">{{ t('init.username') }}</Label>
+            <Input
+              id="username"
+              v-model="formValue.username"
+              :placeholder="t('init.username')"
+              :maxlength="32"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <Label for="password">{{ t('init.password') }}</Label>
+            <Input
+              id="password"
+              v-model="formValue.password"
+              type="password"
+              :placeholder="t('init.password')"
+              :maxlength="64"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <Label for="confirmPassword">{{ t('init.confirmPassword') }}</Label>
+            <Input
+              id="confirmPassword"
+              v-model="formValue.confirmPassword"
+              type="password"
+              :placeholder="t('init.confirmPassword')"
+              :maxlength="64"
+              @keydown.enter="handleNext"
+            />
+          </div>
+
+          <Button type="submit" class="w-full" :disabled="loading">
+            <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin" />
+            {{ loading ? t('init.creating') : t('init.next') }}
+          </Button>
+        </form>
       </div>
 
-      <n-form
-        v-if="step === 1"
-        ref="formRef"
-        :model="formValue"
-        :rules="rules"
-        size="large"
-        @submit.prevent="handleNext"
-      >
-        <n-form-item path="username" :label="t('init.username')">
-          <n-input
-            v-model:value="formValue.username"
-            :placeholder="t('init.username')"
-            :maxlength="32"
-            clearable
-          >
-            <template #prefix>
-              <n-icon><person-outline /></n-icon>
-            </template>
-          </n-input>
-        </n-form-item>
-
-        <n-form-item path="password" :label="t('init.password')">
-          <n-input
-            v-model:value="formValue.password"
-            type="password"
-            :placeholder="t('init.password')"
-            show-password-on="mousedown"
-            :maxlength="64"
-          >
-            <template #prefix>
-              <n-icon><lock-closed-outline /></n-icon>
-            </template>
-          </n-input>
-        </n-form-item>
-
-        <n-form-item path="confirmPassword" :label="t('init.confirmPassword')">
-          <n-input
-            v-model:value="formValue.confirmPassword"
-            type="password"
-            :placeholder="t('init.confirmPassword')"
-            show-password-on="mousedown"
-            :maxlength="64"
-            @keydown.enter="handleNext"
-          >
-            <template #prefix>
-              <n-icon><lock-closed-outline /></n-icon>
-            </template>
-          </n-input>
-        </n-form-item>
-
-        <n-button
-          type="primary"
-          attr-type="submit"
-          block
-          :loading="loading"
-          :disabled="loading"
-          @click="handleNext"
-        >
-          {{ loading ? t('init.creating') : t('init.next') }}
-        </n-button>
-      </n-form>
-
-      <div v-else-if="step === 2" class="init-success">
-        <n-icon size="64" color="#18a058">
-          <checkmark-circle-outline />
-        </n-icon>
-        <p>{{ t('init.createSuccess') }}</p>
-        <p class="redirect-text">{{ t('init.redirecting') }}</p>
+      <div v-else-if="step === 2" class="text-center py-8">
+        <CheckCircle class="h-16 w-16 mx-auto mb-4 text-green-500" />
+        <p class="text-lg">{{ t('init.createSuccess') }}</p>
+        <p class="text-sm text-muted-foreground mt-2">{{ t('init.redirecting') }}</p>
       </div>
     </div>
   </div>
@@ -86,21 +62,20 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import {
-  NForm, NFormItem, NInput, NButton, NIcon,
-  useMessage
-} from 'naive-ui'
-import { ServerOutline, PersonOutline, LockClosedOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
+import { Server, CheckCircle, Loader2 } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import { useToast } from '@/components/ui/useToast.ts'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const { t } = useI18n()
-const message = useMessage()
+const { toast } = useToast()
 const authStore = useAuthStore()
 
 const step = ref(1)
 const loading = ref(false)
-const formRef = ref()
 
 const formValue = ref({
   username: '',
@@ -108,28 +83,15 @@ const formValue = ref({
   confirmPassword: ''
 })
 
-const rules = {
-  username: { required: true, message: t('init.usernameRequired'), trigger: 'blur' },
-  password: [
-    { required: true, message: t('init.passwordRequired'), trigger: 'blur' },
-    { min: 6, message: t('init.passwordMinLength'), trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, message: t('init.passwordRequired'), trigger: 'blur' },
-    {
-      validator: (_rule: any, value: string) => value === formValue.value.password,
-      message: t('init.passwordMismatch'),
-      trigger: 'blur'
-    }
-  ]
-}
-
 async function handleNext() {
   if (loading.value) return
-
-  try {
-    await formRef.value?.validate()
-  } catch {
+  if (!formValue.value.username || !formValue.value.password || !formValue.value.confirmPassword) return
+  if (formValue.value.password !== formValue.value.confirmPassword) {
+    toast({ title: 'Error', description: t('init.passwordMismatch'), variant: 'destructive' })
+    return
+  }
+  if (formValue.value.password.length < 6) {
+    toast({ title: 'Error', description: t('init.passwordMinLength'), variant: 'destructive' })
     return
   }
 
@@ -148,11 +110,11 @@ async function handleNext() {
   } catch (error: any) {
     const errorMsg = error?.response?.data?.error || t('init.createFailed')
     if (errorMsg.includes('already exists')) {
-      message.error(t('init.usernameExists'))
+      toast({ title: 'Error', description: t('init.usernameExists'), variant: 'destructive' })
     } else if (errorMsg.includes('network') || error?.code === 'ECONNREFUSED') {
-      message.error(t('init.networkError'))
+      toast({ title: 'Error', description: t('init.networkError'), variant: 'destructive' })
     } else {
-      message.error(errorMsg)
+      toast({ title: 'Error', description: errorMsg, variant: 'destructive' })
     }
   } finally {
     loading.value = false
@@ -166,61 +128,3 @@ onMounted(async () => {
   }
 })
 </script>
-
-<style scoped>
-.init-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f5f5f5;
-}
-
-.init-card {
-  width: 100%;
-  max-width: 400px;
-  padding: 40px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.init-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.init-header .n-icon {
-  color: #18a058;
-  margin-bottom: 16px;
-}
-
-.init-header h1 {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 8px;
-}
-
-.init-header p {
-  font-size: 14px;
-  color: #999;
-  margin: 0;
-}
-
-.init-success {
-  text-align: center;
-  padding: 32px 0;
-}
-
-.init-success p {
-  margin: 16px 0 0;
-  font-size: 16px;
-  color: #333;
-}
-
-.redirect-text {
-  color: #999;
-  font-size: 14px !important;
-}
-</style>

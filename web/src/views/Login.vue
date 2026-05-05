@@ -1,86 +1,65 @@
 <template>
-  <div class="login-page">
-    <div class="login-card">
-      <div class="login-header">
-        <n-icon size="48" depth="3">
-          <server-outline />
-        </n-icon>
-        <h1>{{ t('login.title') }}</h1>
-        <p>{{ t('login.subtitle') }}</p>
+  <div class="flex min-h-screen items-center justify-center bg-gray-100">
+    <div class="w-full max-w-[400px] p-8 bg-white rounded-lg shadow-lg">
+      <div class="text-center mb-8">
+        <Server class="h-12 w-12 mx-auto mb-4 text-primary" />
+        <h1 class="text-2xl font-semibold">{{ t('login.title') }}</h1>
+        <p class="text-sm text-muted-foreground mt-1">{{ t('login.subtitle') }}</p>
       </div>
 
-      <n-form
-        ref="formRef"
-        :model="formValue"
-        :rules="rules"
-        size="large"
-        @submit.prevent="handleLogin"
-      >
-        <n-form-item path="username" :show-label="false">
-          <n-input
-            v-model:value="formValue.username"
+      <form @submit.prevent="handleLogin" class="space-y-4">
+        <div class="space-y-2">
+          <Label for="username">{{ t('login.username') }}</Label>
+          <Input
+            id="username"
+            v-model="formValue.username"
             :placeholder="t('login.username')"
             :maxlength="32"
-            clearable
-          >
-            <template #prefix>
-              <n-icon><person-outline /></n-icon>
-            </template>
-          </n-input>
-        </n-form-item>
+            autocomplete="username"
+          />
+        </div>
 
-        <n-form-item path="password" :show-label="false">
-          <n-input
-            v-model:value="formValue.password"
+        <div class="space-y-2">
+          <Label for="password">{{ t('login.password') }}</Label>
+          <Input
+            id="password"
+            v-model="formValue.password"
             type="password"
             :placeholder="t('login.password')"
-            show-password-on="mousedown"
             :maxlength="64"
-            @keydown.enter="handleLogin"
-          >
-            <template #prefix>
-              <n-icon><lock-closed-outline /></n-icon>
-            </template>
-          </n-input>
-        </n-form-item>
+            autocomplete="current-password"
+          />
+        </div>
 
-        <n-button
-          type="primary"
-          attr-type="submit"
-          block
-          :loading="loading"
-          :disabled="loading"
-          :render-icon="renderIcon"
-        >
+        <Button type="submit" class="w-full" :disabled="loading">
+          <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin" />
           {{ loading ? t('login.loggingIn') : t('login.signIn') }}
-        </n-button>
-      </n-form>
+        </Button>
+      </form>
 
-      <div class="login-footer">
-        <n-text depth="3">{{ t('login.defaultCredentials') }}</n-text>
+      <div class="mt-6 text-center">
+        <p class="text-xs text-muted-foreground">{{ t('login.defaultCredentials') }}</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, h } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import {
-  NForm, NFormItem, NInput, NButton, NIcon,
-  NText, useMessage, useNotification
-} from 'naive-ui'
-import { ServerOutline, PersonOutline, LockClosedOutline, ArrowForwardOutline } from '@vicons/ionicons5'
+import { Server, Loader2 } from 'lucide-vue-next'
+import Button from '@/components/ui/Button.vue'
+import Input from '@/components/ui/Input.vue'
+import Label from '@/components/ui/Label.vue'
+import { useToast } from '@/components/ui/useToast.ts'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const { t } = useI18n()
-const message = useMessage()
-const notification = useNotification()
+const { toast } = useToast()
 const authStore = useAuthStore()
 
-const formRef = ref()
 const loading = ref(false)
 
 const formValue = ref({
@@ -88,87 +67,30 @@ const formValue = ref({
   password: ''
 })
 
-const rules = {
-  username: { required: true, message: t('login.username'), trigger: 'blur' },
-  password: { required: true, message: t('login.password'), trigger: 'blur' }
-}
-
-function renderIcon() {
-  return h(NIcon, null, { default: () => h(ArrowForwardOutline) })
-}
-
 async function handleLogin() {
   if (loading.value) return
-
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
+  if (!formValue.value.username || !formValue.value.password) return
 
   loading.value = true
 
   try {
     await authStore.login(formValue.value.username, formValue.value.password)
 
-    notification.success({
-      content: t('login.welcome'),
-      meta: t('login.loggedInAs', { username: formValue.value.username }),
-      duration: 2000
+    toast({
+      title: t('login.welcome'),
+      description: t('login.loggedInAs', { username: formValue.value.username }),
+      variant: 'default'
     })
 
     router.push('/')
   } catch (error: any) {
-    message.error(t('login.loginFailed'))
+    toast({
+      title: 'Error',
+      description: t('login.loginFailed'),
+      variant: 'destructive'
+    })
   } finally {
     loading.value = false
   }
 }
 </script>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f5f5f5;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 400px;
-  padding: 40px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.login-header .n-icon {
-  color: #18a058;
-  margin-bottom: 16px;
-}
-
-.login-header h1 {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 8px;
-}
-
-.login-header p {
-  font-size: 14px;
-  color: #999;
-  margin: 0;
-}
-
-.login-footer {
-  text-align: center;
-  margin-top: 24px;
-}
-</style>
